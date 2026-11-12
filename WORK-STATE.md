@@ -19,7 +19,8 @@ Roger approved implementation, builds/tests, and incremental commits/pushes on 1
 - f8fe080: cleanup consent, Enter action, Dock lifecycle; pushed.
 - 23c2a80: floating indicator, Intel-only workflow; pushed.
 - c73be90: native suppressible mouse bindings; pushed.
-- Validation fixes/parallel input coordination follow these commits; all latest local tests and the frontend build passed before committing.
+- 1812459: validation fixes/parallel input coordination; pushed, real Intel Mac CI passed.
+- e5724c4: architecture/signature verification and limited Mac startup smoke step; pushed during the 16:00 UTC review after the previous run completed.
 - Workflow permission initially blocked push; Roger ran gh auth refresh -s workflow. Scope is now present and pushes succeeded.
 
 ## Implemented
@@ -43,17 +44,18 @@ Roger approved implementation, builds/tests, and incremental commits/pushes on 1
 - All 18 policy/signal tests PASSED locally after all changes: seven Bun tests (cleanup/parallel input), eight pure Rust mouse tests, three pure Rust audio tests. These do not substitute for real Mac acceptance tests.
 - Root bun check was attempted but fails in unrelated apps/demo-mcp because its tsc executable is not installed. Do not claim the whole monorepo check passes. Log /tmp/whispering-workspace-check.log.
 - Real Intel macOS workflow .github/workflows/intel-macos.yml uses macos-15-intel, type checks, Bun policy tests, actual Tauri build, native cargo unit tests, and uploads an ad-hoc-signed app zip. No live provider API calls.
-- CI run 43245643126 (commit 1812459) is running on real Intel Mac runner GitHub Actions 1000000293. The actual Intel Mac app build PASSED, as did frozen dependency installation, frontend types and all seven Bun policy tests. The native cargo unit-test step is still running as of the 15:30 UTC review cycle; packaging/upload have not run yet. A 120-second watch timed out without a completed run; this did not cancel the remote run. Inspect it before pushing anything, so we do not cancel a late native-test compile.
-- Earlier runs 43243736301/43243701724 were cancelled by concurrency; avoid duplicate dispatches. Native compilation has now passed on Intel macOS, but native test results and interactive behaviour are not yet verified.
+- SUCCESS: CI run 43245643126 (commit 1812459) completed on real Intel Mac runner GitHub Actions 1000000293. Frozen dependency install, frontend type checks, seven Bun policy tests, actual Intel Mac Tauri build, ALL TWELVE native Rust tests, packaging and artifact upload PASSED. Native tests cover three audio RMS calculations, one live-meter sample calculation, and eight mouse policy cases. Total: 19 tests on Mac. Build finished at 15:30 UTC and native tests at 15:35 UTC. Log downloaded to /tmp/whispering-intel-mac-success.log.
+- Artifact 13959012192: https://github.com/archsinit/epicenter/actions/runs/43245643126/artifacts/13959012192 . Local download /tmp/whispering-intel-artifact-1812459/Whispering-Intel-macOS.zip, 15,793,304 bytes. Linux archive/Mach-O inspection passed: uncorrupted zip, correct fork bundle ID, executable bit retained, thin x86_64 binary. Inner zip SHA-256: 4bca503f444bed8a6851523b26029f8de94cbdf20dc2e26498d5533e71cde37a . This static Linux inspection does NOT verify the Mac signature or runtime behaviour.
+- Run 43253897031 (e5724c4) is queued to execute the additional Mac architecture/signature/startup smoke checks. No claim yet that these new checks passed. Earlier cancelled runs are historical; avoid unnecessary duplicate dispatches or code pushes while this run is pending. Documentation-only pushes do not match the workflow paths and should not cancel it.
 - Interactive acceptance checklist: apps/whispering/docs/intel-testing.md. No remote Mac access is configured/provided so far. Asked Roger whether he has a remotely accessible Mac or will test the installer himself. Physical mic, mouse-driver suppression, Dock/Spaces/full-screen and permission behaviours remain unverified.
 
 ## Next steps
 
-1. Inspect run 43245643126 before pushing: it passed the real Intel build and is finishing native tests. Allow it to complete so the artifact and test evidence are retained. Current local application checks/build and all 18 policy/signal tests passed at 1812459.
-2. This cycle adds scripts/verify-intel-app.sh plus a CI step to check real Mach-O architecture, app identity and bundle signature, and smoke-test process startup for eight seconds if a GUI login session exists. It makes no input/provider calls and explicitly distinguishes liveness from UI acceptance. Bash syntax check and fail-closed Linux-host guard passed; actual Mac execution is NOT yet verified. Commit locally now, but do not push until run 43245643126 finishes. Then push the ahead commit to test the new step on Mac; do not falsely mark it passed from syntax checks alone.
-3. Inspect the newest Intel Mac CI run (gh run list/view/log). Debug native compile/build/test/startup failures. Do not replace real Mac checks with Linux-only claims. Keep workflow changes incremental; pushes trigger CI.
+1. Inspect run 43253897031 next. The previous real Intel build and all 19 Mac tests passed; its artifact is already linked in README. The new run must verify architecture/signature and execute or explicitly skip the startup smoke check based on GUI availability.
+2. scripts/verify-intel-app.sh makes no input/provider calls and distinguishes eight-second process liveness from UI acceptance. Bash syntax and fail-closed Linux-host guard passed. Its actual Mac result is NOT yet known. After the new run completes, download the validation report and check it before updating status.
+3. Debug any native build/test/signature/startup failures. Do not replace real Mac checks with Linux-only claims. Avoid unnecessary pushes while CI is pending.
 4. Review indicator state/error paths, mouse permission/recovery and parallel input behaviour. Test source-aware input on Mac. Investigate any UI focus/full-screen issues with actual evidence.
-5. Provide an artifact only after successful Intel build. Be explicit that it is ad-hoc signed, not notarized, and still needs interactive tests.
+5. A test artifact is now available and linked in README, with an explicit ad-hoc/not-notarized and interactive-test-pending caveat. Artifact retention is 14 days; do not treat it as a permanent release URL. Update the link to the new run after it passes and note expiry if necessary.
 6. Use Roger's Mac if he provides normal authorized remote access; otherwise clearly request his acceptance-test results. Do not disable OS protections or work around denied permissions.
 7. Update README from planned to completed features only as validated. Do not call the project done while native build or interactive acceptance is unverified.
 
