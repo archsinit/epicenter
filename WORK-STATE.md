@@ -1,12 +1,12 @@
 # Whispering Intel work state
 
-## Current status: focused validation of fork changes
+## Current status: automated validation complete; Intel scheduler paused pending on-Mac checks
 
 Roger clarified: test ONLY our changes, not the whole upstream app. Do not add broad speech-recognition/provider-quality or unrelated regression testing. Remaining scope is Dock persistence, live waveform/processing indicator, independent Enter, parallel keyboard/mouse bindings with suppression, and the explicit cleanup toggle.
 
 Latest focused change is test commit dc87847: nine tests of the actual indicator controller with native IPC mocked (phase transitions, new-recording priority, overlapping jobs, unavailable meter, serialized IPC, IPC failure recovery, error expiry and browser behaviour). All nine pass locally; combined fork policy suite is 16 passing tests and app type checking has zero errors/17 inherited warnings.
 
-New real Intel Mac CI run 43316942968 has now PASSED the focused indicator/cleanup/input test step (completed 22:11:02 UTC) and the Intel app build (22:32:23 UTC). Native audio/mouse tests began at 22:32:23 and were still running at 22:38 UTC; signature/startup/report/package steps remain pending. Two bounded watches timed out without cancelling the remote run. Do NOT call the entire run successful or assume visible animation/native focus was tested. Inspect its actual final report on completion. No production code, installed Mac app or signing identity changed.
+COMPLETE: Intel Mac CI run 43316942968 for dc87847 passed all 16 focused Bun tests, all 12 native Rust tests (28 unit tests total), three pipeline failure-propagation checks, frontend types, release build, deep/strict signature verification, eight-second GUI-session startup liveness, packaging and artifact upload. Host: macOS 15.7.9 x86_64. Downloaded and READ the actual report at /tmp/whispering-dc87847-validation/Whispering-Intel-validation.txt and full log /tmp/whispering-dc87847-completed.log; no startup skip occurred. Expected cleanup Terminated: 15 is the harness stopping its own child, not a crash. Visible animation/native focus/physical input are still NOT verified. No production code, installed Mac app or signing identity changed; keep the existing dd43322 install rather than replacing it for test-only changes.
 
 Read-only desktop check in this review found another application foreground. No focus changes, input, screenshots, remote-access settings or permission changes were made. An unrelated Android target/spec is being developed in the same working tree by another task; leave those untracked files untouched.
 
@@ -18,7 +18,7 @@ The fork reports Microphone and Accessibility permissions are not granted. User 
 
 NEW: Actual app upload/transcription/cleanup routing was tested on Roger's Mac using a silent WAV and a loopback-only canned provider. Cleanup OFF with a valid transformation SELECTED produced only a transcription request. Cleanup ON produced transcription followed by exactly one chat-completion request; the saved transformation run was completed with the expected cleaned fixture output. Three uploads total: three transcription POSTs and one cleanup POST. This validates actual pipeline consent/routing, NOT speech recognition or a real provider's quality.
 
-The 30-minute scheduler remains active ONLY to finish checking Mac CI run 43316942968 and any directly actionable fork-change failures. Next direct-Mac check, only when the desktop is available: processing-indicator visibility/phase/focus during a delayed localhost upload. This tests our indicator change, not upstream transcription quality. Reuse scripts/integration safely and restore settings afterward. Do not take over an active remote-access session. Physical waveform/Enter/mouse tests remain blocked by normal OS permission grants. After the focused CI result, if only permission/desktop-dependent validation remains, pause rather than invent broad app tests or repeatedly consume model calls.
+The Intel-only 30-minute scheduler is now PAUSED via workspace pi-web/whispering-work.paused: automated checks are complete and only desktop/permission-dependent validation remains. Resume when Roger makes the desktop available for targeted indicator UI testing and/or grants the fork's normal Microphone/Accessibility permissions. SSH authorization remains valid; do not shift all testing back to the user or claim it cannot be automated on their Mac. Do not take over an active remote-access/browser session. When available, test only our indicator visibility/phase/focus, live waveform, independent Enter and mouse suppression/coexistence, using isolated documents/fixtures. Do not invent broad upstream tests, reinstall unchanged ad-hoc builds or repeatedly consume model calls while blocked. This pause affects this Intel project review only, not the separate Android work.
 
 Roger approved implementation, builds/tests and incremental commits/pushes on 12 November 2026; do not ask for routine approval again. Read root/app AGENTS.md and relevant rules.
 
@@ -69,7 +69,7 @@ Separate diagnostic report artifact: 13964457142.
 
 Checklist: `apps/whispering/docs/intel-testing.md`.
 
-1. DONE: Installed exact corrected artifact and verified SHA/signature directly on Roger's Intel Mac. Normal Microphone/Accessibility permissions still need user approval.
+1. DONE: Installed exact corrected artifact and verified SHA/signature directly on Roger's Intel Mac. Microphone/Accessibility were last observed ungranted; user approval and targeted re-verification are needed before physical-input tests.
 2. DONE: Window close hides while process/Dock persist; actual Dock click reopens same PID; native menu Quit exits fork only; relaunch renders UI. Still test full-screen/Spaces/multiple monitors, typing focus and shortcut operation while hidden.
 3. Configure intended microphone with default CPAL, dictate into a text field; confirm actual waveform responds to voice and settles on silence, processing animation appears, text arrives without automatic Enter.
 4. Configure the independent Enter shortcut and optional mouse buttons. Confirm keyboard still works, bound side button does not trigger Back/Forward or drag behaviour, unassigned buttons remain normal, permission failures and push-to-talk release are safe.
@@ -93,6 +93,6 @@ Roger wants one persistent signature so permissions do not need repeated grants.
 
 ## Scheduler controls
 
-Workspace `pi-web/whispering-work.cjs`, cron every 30 minutes, target this chat. Pause flag: `pi-web/whispering-work.paused`; it is being removed now that authorized direct Mac testing and independent fixture tests can proceed. `node pi-web/whispering-work.cjs --dry-run` reports Paused while the flag exists, without API/model calls.
+Workspace `pi-web/whispering-work.cjs`, cron every 30 minutes, target this chat. PAUSED using `pi-web/whispering-work.paused` after completion of run 43316942968. `node pi-web/whispering-work.cjs --dry-run` reports Paused while the flag exists, without API/model calls. Remove the flag only when desktop availability, normal permission grants or a new relevant task gives a concrete next step.
 
 The runner double-checks idle state and skips busy/unavailable/unknown states without intentional queueing/steering. Slot receipt prevents duplicate attempts; no session rollover. Host API lacks atomic idle-only admission, so a narrow race remains. Five offline scheduler tests previously passed. Never commit private session targets, receipts or logs.
