@@ -10,6 +10,7 @@
 	import NotificationLog from '$lib/components/NotificationLog.svelte';
 	import UpdateDialog from '$lib/components/UpdateDialog.svelte';
 	import { rpc } from '$lib/query';
+	import { indicator } from '$lib/query/indicator';
 	import { vadRecorder } from '$lib/query/vad.svelte';
 	import * as services from '$lib/services';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -77,6 +78,13 @@
 		syncWindowAlwaysOnTopWithRecorderState();
 		syncIconWithRecorderState();
 	}
+
+	$effect(() => {
+		indicator.recording(
+			getRecorderStateQuery.data === 'RECORDING',
+			settings.value['recording.method'] === 'cpal',
+		);
+	});
 
 	$effect(() => {
 		getRecorderStateQuery.data;

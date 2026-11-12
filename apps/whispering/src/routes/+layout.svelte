@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onNavigate } from '$app/navigation';
+	import { page } from '$app/state';
 	import { queryClient } from '$lib/query/_client';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { SvelteQueryDevtools } from '@tanstack/svelte-query-devtools';
@@ -48,6 +49,7 @@
 	</Tooltip.Provider>
 </QueryClientProvider>
 
+{#if page.url.pathname !== '/recording-indicator'}
 <Toaster
 	offset={16}
 	class="xs:block hidden"
@@ -56,6 +58,7 @@
 />
 <ModeWatcher />
 <SvelteQueryDevtools client={queryClient} buttonPosition="bottom-right" />
+{/if}
 
 <style>
 	/* Override inspector button to bottom-center positioning */

@@ -1,0 +1,56 @@
+name: Intel macOS build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [whispering-intel]
+    paths:
+      - 'apps/whispering/**'
+      - 'packages/**'
+      - 'bun.lock'
+      - '.github/workflows/intel-macos.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intel-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/whispering/src-tauri -> target
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+      - name: Test cleanup policy
+        run: bun test apps/whispering/src/lib/query/cleanup-policy.test.ts
+      - name: Build Intel Mac app
+        working-directory: apps/whispering
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: bun tauri build --target x86_64-apple-darwin --bundles app
+      - name: Test native audio meter
+        working-directory: apps/whispering/src-tauri
+        run: cargo test --lib indicator::tests --target x86_64-apple-darwin
+      - name: Package app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            'apps/whispering/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Whispering Intel.app' \
+            Whispering-Intel-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Whispering-Intel-macOS
+          path: Whispering-Intel-macOS.zip
+          retention-days: 14

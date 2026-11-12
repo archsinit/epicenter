@@ -428,6 +428,7 @@ fn build_input_stream(
                 move |data: &[f32], _: &_| {
                     if is_recording.load(Ordering::Relaxed) {
                         if let Ok(mut w) = writer.lock() {
+                            crate::indicator::record_level(data.iter().copied());
                             let _ = w.write_samples_f32(data);
                         }
                     }
@@ -442,6 +443,7 @@ fn build_input_stream(
                 move |data: &[i16], _: &_| {
                     if is_recording.load(Ordering::Relaxed) {
                         if let Ok(mut w) = writer.lock() {
+                            crate::indicator::record_level(data.iter().map(|&s| s as f32 / 32768.0));
                             let _ = w.write_samples_i16(data);
                         }
                     }
@@ -456,6 +458,7 @@ fn build_input_stream(
                 move |data: &[u16], _: &_| {
                     if is_recording.load(Ordering::Relaxed) {
                         if let Ok(mut w) = writer.lock() {
+                            crate::indicator::record_level(data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
                             let _ = w.write_samples_u16(data);
                         }
                     }

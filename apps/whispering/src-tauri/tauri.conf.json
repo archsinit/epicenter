@@ -21,12 +21,12 @@
 		],
 		"longDescription": "Seamlessly integrate speech-to-text transcriptions anywhere on your desktop. Powered by OpenAI's Whisper API.",
 		"shortDescription": "Press shortcut → speak → get text. Free and open source ❤️",
-		"createUpdaterArtifacts": true,
+		"createUpdaterArtifacts": false,
 		"macOS": {
 			"entitlements": "entitlements.plist",
 			"hardenedRuntime": true,
 			"minimumSystemVersion": "10.15",
-			"signingIdentity": "Developer ID Application: Braden Wong (3C7J97QA5Z)"
+			"signingIdentity": "-"
 		},
 		"linux": {
 			"appimage": {
@@ -47,17 +47,10 @@
 			}
 		}
 	},
-	"productName": "Whispering",
+	"productName": "Whispering Intel",
 	"version": "7.10.0",
-	"identifier": "com.bradenwong.whispering",
-	"plugins": {
-		"updater": {
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUwQzE1RjEyRThENzg0OEEKUldTS2hOZm9FbC9CVU1uZ1JLWlluMm1mOHd4N1RWUkNjME9PcHA3Nkg2ek5RMnZyVTVDS2k1QkwK",
-			"endpoints": [
-				"https://github.com/EpicenterHQ/epicenter/releases/latest/download/latest.json"
-			]
-		}
-	},
+	"identifier": "com.archsinit.whispering-intel",
+	"plugins": {},
 	"app": {
 		"macOSPrivateApi": true,
 		"windows": [

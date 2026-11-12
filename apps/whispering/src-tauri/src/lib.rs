@@ -3,6 +3,7 @@ use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_log::{Target, TargetKind};
 
+pub mod indicator;
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, close_recording_session, enumerate_recording_devices,
@@ -144,6 +145,11 @@ pub async fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            indicator::create_window(app)?;
+            Ok(())
+        })
+        .manage(indicator::IndicatorState::default())
         .manage(AppData::new())
         .manage(ModelManager::new());
 
@@ -160,6 +166,8 @@ pub async fn run() {
     // Register command handlers (same for all platforms now)
     let builder = builder.invoke_handler(tauri::generate_handler![
         write_text,
+        indicator::set_indicator_state,
+        indicator::get_indicator_state,
         simulate_enter_keystroke,
         // Audio recorder commands
         get_current_recording_id,
