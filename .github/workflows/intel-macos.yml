@@ -8,6 +8,7 @@ on:
       - 'apps/whispering/**'
       - 'packages/**'
       - 'bun.lock'
+      - 'scripts/verify-intel-app.sh'
       - '.github/workflows/intel-macos.yml'
 
 permissions:
@@ -46,6 +47,11 @@ jobs:
       - name: Test native audio meter and mouse policy
         working-directory: apps/whispering/src-tauri
         run: cargo test --lib --target x86_64-apple-darwin
+      - name: Verify Intel bundle and smoke-test app startup
+        run: |
+          bash scripts/verify-intel-app.sh \
+            'apps/whispering/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Whispering Intel.app' \
+            2>&1 | tee Whispering-Intel-validation.txt
       - name: Package app
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
@@ -54,5 +60,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Whispering-Intel-macOS
-          path: Whispering-Intel-macOS.zip
+          path: |
+            Whispering-Intel-macOS.zip
+            Whispering-Intel-validation.txt
           retention-days: 14

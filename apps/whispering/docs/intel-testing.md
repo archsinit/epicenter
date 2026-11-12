@@ -1,6 +1,8 @@
 # Intel Mac acceptance tests
 
-CI compiles the real macOS app and runs native unit tests on an Intel Mac runner. It does not prove physical microphone capture, Accessibility permissions, Dock interactions or actual mouse-driver behaviour. Those require an interactive Intel Mac.
+CI compiles the real macOS app and runs native unit tests on an Intel Mac runner. It also checks the executable architecture, fork identity and bundle signature. When the runner has a GUI login session, it launches the built executable and checks that it stays alive for eight seconds; otherwise it records an explicit skip. The artifact includes the validation report.
+
+Startup liveness does not prove window/UI readiness, physical microphone capture, Accessibility permissions, Dock interactions or actual mouse-driver behaviour. Those require an interactive Intel Mac.
 
 No live provider API calls are made by the automated tests. Use a dedicated low-budget key for the manual dictation tests.
 
