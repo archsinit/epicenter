@@ -33,7 +33,7 @@ export const commands = [
 		id: 'pressEnter',
 		title: 'Press Enter in the active app',
 		on: ['Pressed'],
-		callback: () => rpc.text.simulateEnterKeystroke.execute(),
+		callback: () => rpc.commands.pressEnter.execute(undefined),
 	},
 	{
 		id: 'pushToTalk',

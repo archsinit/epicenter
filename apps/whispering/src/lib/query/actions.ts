@@ -326,6 +326,19 @@ const stopVadRecording = defineMutation({
 });
 
 export const commands = {
+	pressEnter: defineMutation({
+		mutationKey: ['commands', 'pressEnter'] as const,
+		mutationFn: async () => {
+			const result = await text.simulateEnterKeystroke.execute();
+			if (result.error) {
+				notify.error.execute({
+					title: 'Could not press Enter',
+					description: result.error.message,
+				});
+			}
+			return Ok(undefined);
+		},
+	}),
 	startManualRecording,
 	stopManualRecording,
 	startVadRecording,

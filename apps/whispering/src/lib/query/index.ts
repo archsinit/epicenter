@@ -7,6 +7,7 @@ import { delivery } from './delivery';
 import { download } from './download';
 import { ffmpeg } from './ffmpeg';
 import { notify } from './notify';
+import { mouseShortcuts } from './mouse-shortcuts';
 import { recorder } from './recorder';
 import { shortcuts } from './shortcuts';
 import { sound } from './sound';
@@ -20,6 +21,7 @@ import { tray } from './tray';
  * Provides a single entry point for all TanStack Query-based operations.
  */
 export const rpc = {
+	mouseShortcuts,
 	analytics,
 	text,
 	commands,

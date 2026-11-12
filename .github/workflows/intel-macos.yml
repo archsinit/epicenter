@@ -41,9 +41,9 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: '-'
         run: bun tauri build --target x86_64-apple-darwin --bundles app
-      - name: Test native audio meter
+      - name: Test native audio meter and mouse policy
         working-directory: apps/whispering/src-tauri
-        run: cargo test --lib indicator::tests --target x86_64-apple-darwin
+        run: cargo test --lib --target x86_64-apple-darwin
       - name: Package app
         run: |
           ditto -c -k --sequesterRsrc --keepParent \

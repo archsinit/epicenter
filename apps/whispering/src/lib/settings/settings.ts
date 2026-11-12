@@ -231,6 +231,14 @@ export const Settings = type({
 	// Analytics settings
 	'analytics.enabled': 'boolean = true',
 
+	// Mouse bindings are independent of keyboard shortcuts and start unassigned.
+	'shortcuts.mouse.bindings': type({
+		button: 'number.integer',
+		commandId: 'string',
+	})
+		.array()
+		.default(() => []),
+
 	// Local shortcuts (in-app shortcuts)
 	'shortcuts.local.pressEnter': 'string | null = null',
 	'shortcuts.local.toggleManualRecording': "string | null = ' '",

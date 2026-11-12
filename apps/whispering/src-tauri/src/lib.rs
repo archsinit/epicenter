@@ -3,6 +3,8 @@ use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_log::{Target, TargetKind};
 
+pub mod mouse_policy;
+pub mod mouse_shortcuts;
 pub mod indicator;
 pub mod recorder;
 use recorder::commands::{
@@ -149,6 +151,7 @@ pub async fn run() {
             indicator::create_window(app)?;
             Ok(())
         })
+        .manage(mouse_shortcuts::MouseState::default())
         .manage(indicator::IndicatorState::default())
         .manage(AppData::new())
         .manage(ModelManager::new());
@@ -156,10 +159,11 @@ pub async fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = app
-                .get_webview_window("main")
-                .expect("no main window")
-                .set_focus();
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
         }));
     }
 
@@ -168,6 +172,8 @@ pub async fn run() {
         write_text,
         indicator::set_indicator_state,
         indicator::get_indicator_state,
+        mouse_shortcuts::configure_mouse_bindings,
+        mouse_shortcuts::mouse_shortcuts_active,
         simulate_enter_keystroke,
         // Audio recorder commands
         get_current_recording_id,

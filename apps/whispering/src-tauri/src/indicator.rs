@@ -13,11 +13,20 @@ fn now_ms() -> u64 {
     CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
 }
 
+pub fn reset_level() {
+    LEVEL.store(0, Ordering::Relaxed);
+    FRAME_AT.store(0, Ordering::Relaxed);
+}
+
 pub fn record_level(samples: impl Iterator<Item = f32>) {
     let (sum, count) = samples.fold((0.0_f32, 0_u32), |(sum, count), value| {
         (sum + value * value, count + 1)
     });
-    let rms = if count > 0 { (sum / count as f32).sqrt() } else { 0.0 };
+    let rms = if count > 0 {
+        (sum / count as f32).sqrt()
+    } else {
+        0.0
+    };
     LEVEL.store(rms.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     FRAME_AT.store(now_ms(), Ordering::Relaxed);
 }
@@ -47,7 +56,9 @@ pub struct Snapshot {
 
 pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
     let window = WebviewWindowBuilder::new(
-        app, "recording-indicator", WebviewUrl::App("recording-indicator".into()),
+        app,
+        "recording-indicator",
+        WebviewUrl::App("recording-indicator".into()),
     )
     .title("Recording status")
     .inner_size(280.0, 64.0)
@@ -77,13 +88,21 @@ pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
 
 #[tauri::command]
 pub fn set_indicator_state(
-    phase: Phase, metered: bool, app: tauri::AppHandle, state: State<'_, IndicatorState>,
+    phase: Phase,
+    metered: bool,
+    app: tauri::AppHandle,
+    state: State<'_, IndicatorState>,
 ) -> Result<(), String> {
     *state.0.lock().map_err(|e| e.to_string())? = (phase, metered);
-    let window = app.get_webview_window("recording-indicator")
+    let window = app
+        .get_webview_window("recording-indicator")
         .ok_or("Recording indicator window unavailable")?;
-    if phase == Phase::Idle { window.hide() } else { window.show() }
-        .map_err(|e| e.to_string())
+    if phase == Phase::Idle {
+        window.hide()
+    } else {
+        window.show()
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -94,8 +113,14 @@ pub fn get_indicator_state(state: State<'_, IndicatorState>) -> Result<Snapshot,
     Ok(Snapshot {
         phase,
         level: if metered && phase == Phase::Recording {
-            Some(if input_active { f32::from_bits(LEVEL.load(Ordering::Relaxed)) } else { 0.0 })
-        } else { None },
+            Some(if input_active {
+                f32::from_bits(LEVEL.load(Ordering::Relaxed))
+            } else {
+                0.0
+            })
+        } else {
+            None
+        },
         input_active,
     })
 }

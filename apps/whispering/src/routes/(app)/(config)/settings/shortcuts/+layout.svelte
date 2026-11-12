@@ -15,14 +15,15 @@
 	const items = [
 		{ href: '/settings/shortcuts/local', title: 'Local Shortcuts' },
 		{ href: '/settings/shortcuts/global', title: 'Global Shortcuts' },
+		{ href: '/settings/shortcuts/mouse', title: 'Mouse Buttons' },
 	] as const;
 </script>
 
 <div class="mx-auto max-w-4xl space-y-6 py-6">
 	<header>
-		<h1 class="text-3xl font-bold tracking-tight">Keyboard Shortcuts</h1>
+		<h1 class="text-3xl font-bold tracking-tight">Shortcuts</h1>
 		<p class="mt-2 text-muted-foreground">
-			Configure keyboard shortcuts to quickly access Whispering features.
+			Configure keyboard and mouse shortcuts. Both work independently.
 		</p>
 	</header>
 

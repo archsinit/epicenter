@@ -33,6 +33,7 @@
 	} from '../_layout-utils/register-permissions';
 	import { syncIconWithRecorderState } from '../_layout-utils/syncIconWithRecorderState.svelte';
 	import { registerOnboarding } from '../_layout-utils/register-onboarding';
+	import { registerMouseShortcuts } from '../_layout-utils/register-mouse-shortcuts';
 
 	const getRecorderStateQuery = createQuery(
 		() => rpc.recorder.getRecorderState.options,
@@ -40,6 +41,17 @@
 
 	let cleanupAccessibilityPermission: (() => void) | undefined;
 	let cleanupMicrophonePermission: (() => void) | undefined;
+
+	$effect(() => {
+		if (!window.__TAURI_INTERNALS__) return;
+		let disposed = false;
+		let cleanup: (() => void) | undefined;
+		registerMouseShortcuts().then((unlisten) => {
+			if (disposed) unlisten();
+			else cleanup = unlisten;
+		});
+		return () => { disposed = true; cleanup?.(); };
+	});
 
 	onMount(() => {
 		// Sync operations - run immediately, these are fast

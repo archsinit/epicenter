@@ -179,6 +179,7 @@ impl RecorderState {
 
     /// Start recording - send command to worker thread and wait for confirmation
     pub fn start_recording(&mut self) -> Result<()> {
+        crate::indicator::reset_level();
         if let Some(tx) = &self.cmd_tx {
             let (reply_tx, reply_rx) = mpsc::channel();
             tx.send(RecorderCmd::Start(reply_tx))
