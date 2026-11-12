@@ -1,5 +1,8 @@
 import type { ShortcutEvent } from '@tauri-apps/plugin-global-shortcut';
 import { rpc } from '$lib/query';
+import { HoldGate } from '$lib/services/hold-gate';
+
+const pushToTalkGate = new HoldGate();
 
 /**
  * Registry of available commands in the application.
@@ -25,7 +28,7 @@ type SatisfiedCommand = {
 	 * - ['Pressed', 'Released']: On both press and release
 	 */
 	on: ShortcutEventState[];
-	callback: (state: ShortcutEventState) => void;
+	callback: (state: ShortcutEventState, source?: string) => void;
 };
 
 export const commands = [
@@ -39,12 +42,17 @@ export const commands = [
 		id: 'pushToTalk',
 		title: 'Push to talk',
 		on: ['Pressed', 'Released'],
-		callback: (state: ShortcutEventState) => {
-			if (state === 'Pressed') {
-				rpc.commands.startManualRecording.execute(undefined);
-			} else {
-				rpc.commands.stopManualRecording.execute(undefined);
+		callback: (state: ShortcutEventState = 'Pressed', source = 'keyboard') => {
+			const action = pushToTalkGate.update(source, state === 'Pressed');
+			if (action === 'start') {
+				rpc.commands.startManualRecording.execute(undefined).then(() => {
+					// A quick release may arrive while microphone setup holds the recorder mutex.
+					if (!pushToTalkGate.isHeld())
+						rpc.commands.stopManualRecording.execute(undefined);
+				});
 			}
+			if (action === 'stop')
+				rpc.commands.stopManualRecording.execute(undefined);
 		},
 	},
 	{

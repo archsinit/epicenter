@@ -101,7 +101,7 @@
 			if (unregisterError) {
 				rpc.notify.error.execute({
 					title: 'Error clearing global shortcut',
-					serviceError: unregisterError,
+					description: unregisterError.message,
 				});
 			}
 

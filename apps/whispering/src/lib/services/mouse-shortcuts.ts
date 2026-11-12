@@ -5,7 +5,11 @@ import { tryAsync } from 'wellcrafted/result';
 import type { ShortcutEventState } from '$lib/commands';
 
 export type MouseBinding = { button: number; commandId: string };
-export type MouseAction = { commandId: string; state: ShortcutEventState };
+export type MouseAction = {
+	commandId: string;
+	state: ShortcutEventState;
+	source: string;
+};
 const { MouseShortcutErr } = createTaggedError('MouseShortcutError');
 
 export const mouseShortcuts = {

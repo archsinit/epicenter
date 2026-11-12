@@ -71,6 +71,7 @@ const startManualRecording = defineMutation({
 		isRecordingOperationBusy = false;
 
 		if (startRecordingError) {
+			indicator.fail();
 			notify.error.execute({ id: toastId, ...startRecordingError });
 			return Ok(undefined);
 		}
@@ -155,6 +156,7 @@ const stopManualRecording = defineMutation({
 		isRecordingOperationBusy = false;
 
 		if (stopRecordingError) {
+			indicator.fail();
 			notify.error.execute({ id: toastId, ...stopRecordingError });
 			return Ok(undefined);
 		}
@@ -243,6 +245,7 @@ const startVadRecording = defineMutation({
 				},
 			});
 		if (startActiveListeningError) {
+			indicator.fail();
 			notify.error.execute({ id: toastId, ...startActiveListeningError });
 			return Ok(undefined);
 		}
@@ -711,7 +714,7 @@ async function processRecordingPipeline({
 		if (getTransformationError) {
 			notify.error.execute({
 				title: '❌ Failed to get transformation',
-				serviceError: getTransformationError,
+				description: getTransformationError.message,
 			});
 			return;
 		}

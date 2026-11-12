@@ -69,11 +69,8 @@ impl MousePolicy {
     }
 
     /// A disabled event tap must release push-to-talk rather than leaving recording stuck on.
-    pub fn release_all(&mut self) -> Vec<(String, bool)> {
-        std::mem::take(&mut self.held)
-            .into_values()
-            .map(|command| (command, false))
-            .collect()
+    pub fn release_all(&mut self) -> Vec<(u32, String)> {
+        std::mem::take(&mut self.held).into_iter().collect()
     }
 }
 
@@ -141,7 +138,7 @@ mod tests {
     fn tap_failure_releases_held_actions() {
         let mut p = policy();
         p.handle(3, ButtonEvent::Down);
-        assert_eq!(p.release_all(), vec![("pushToTalk".into(), false)]);
+        assert_eq!(p.release_all(), vec![(3, "pushToTalk".into())]);
         assert!(p.release_all().is_empty());
     }
     #[test]

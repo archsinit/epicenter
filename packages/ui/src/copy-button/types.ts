@@ -4,14 +4,13 @@
 */
 
 import type { Snippet } from 'svelte';
-import type { HTMLButtonAttributes } from 'svelte/elements';
-import type { ButtonSize, ButtonVariant } from '#/button';
+import type { ButtonProps, ButtonSize, ButtonVariant } from '#/button';
 import type { UseClipboard } from '#/hooks/use-clipboard.svelte';
 
 export type CopyFn = (text: string) => Promise<void>;
 
 export type CopyButtonPropsWithoutHTML = {
-	ref?: HTMLButtonElement | null;
+	ref?: HTMLElement | null;
 	text: string;
 	icon?: Snippet<[]>;
 	animationDuration?: number;
@@ -24,4 +23,4 @@ export type CopyButtonPropsWithoutHTML = {
 };
 
 export type CopyButtonProps = CopyButtonPropsWithoutHTML &
-	Omit<HTMLButtonAttributes, 'children'>;
+	Omit<ButtonProps, 'children' | 'ref' | 'href'>;

@@ -89,7 +89,7 @@
 					<h4 class="text-sm font-semibold mb-1">Modifiers</h4>
 					<p class="text-xs text-muted-foreground mb-2">Hold with other keys</p>
 					<div class="flex flex-wrap sm:flex-col gap-1">
-						{#each (isLocal ? KEYBOARD_EVENT_SUPPORTED_KEY_SECTIONS.at(0) : ACCELERATOR_SECTIONS.at(0)).keys as modifier}
+						{#each (isLocal ? KEYBOARD_EVENT_SUPPORTED_KEY_SECTIONS.at(0) : ACCELERATOR_SECTIONS.at(0))?.keys ?? [] as modifier}
 							<Kbd.Root>{modifier}</Kbd.Root>
 						{/each}
 					</div>

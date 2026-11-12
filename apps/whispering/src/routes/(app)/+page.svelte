@@ -271,9 +271,9 @@
 				accept="{ACCEPT_AUDIO}, {ACCEPT_VIDEO}"
 				maxFiles={10}
 				maxFileSize={25 * MEGABYTE}
-				onUpload={(files) => {
+				onUpload={async (files) => {
 					if (files.length > 0) {
-						rpc.commands.uploadRecordings.execute({ files });
+						await rpc.commands.uploadRecordings.execute({ files });
 					}
 				}}
 				onFileRejected={({ file, reason }) => {

@@ -19,14 +19,7 @@ pub fn reset_level() {
 }
 
 pub fn record_level(samples: impl Iterator<Item = f32>) {
-    let (sum, count) = samples.fold((0.0_f32, 0_u32), |(sum, count), value| {
-        (sum + value * value, count + 1)
-    });
-    let rms = if count > 0 {
-        (sum / count as f32).sqrt()
-    } else {
-        0.0
-    };
+    let rms = crate::audio_meter::rms(samples);
     LEVEL.store(rms.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     FRAME_AT.store(now_ms(), Ordering::Relaxed);
 }

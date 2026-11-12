@@ -34,8 +34,10 @@ jobs:
           workspaces: apps/whispering/src-tauri -> target
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
-      - name: Test cleanup policy
-        run: bun test apps/whispering/src/lib/query/cleanup-policy.test.ts
+      - name: Check frontend types
+        run: bun run --cwd apps/whispering check
+      - name: Test cleanup and parallel input policies
+        run: bun test apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts
       - name: Build Intel Mac app
         working-directory: apps/whispering
         env:

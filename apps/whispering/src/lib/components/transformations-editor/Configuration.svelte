@@ -66,6 +66,7 @@
 
 	function duplicateStep(index: number) {
 		const stepToDuplicate = transformation.steps[index];
+		if (!stepToDuplicate) return;
 		const duplicatedStep = { ...stepToDuplicate, id: crypto.randomUUID() };
 		transformation = {
 			...transformation,

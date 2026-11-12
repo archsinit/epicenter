@@ -77,7 +77,7 @@
 			<Sidebar.GroupContent>
 				<Sidebar.Menu>
 					{#each navItems as item}
-						{@const active = isActive(item.href, item.exact ?? false)}
+						{@const active = isActive(item.href, 'exact' in item && item.exact)}
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={active}>
 								{#snippet child({ props })}

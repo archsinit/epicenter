@@ -3,6 +3,7 @@ use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_log::{Target, TargetKind};
 
+pub mod audio_meter;
 pub mod mouse_policy;
 pub mod mouse_shortcuts;
 pub mod indicator;

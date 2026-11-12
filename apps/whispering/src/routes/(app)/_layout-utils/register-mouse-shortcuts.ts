@@ -7,7 +7,7 @@ export async function registerMouseShortcuts() {
 	const { data: unlisten, error } = await mouseShortcuts.listen((action) => {
 		const command = commands.find((command) => command.id === action.commandId);
 		if (command?.on.some((state) => state === action.state))
-			command.callback(action.state);
+			command.callback(action.state, action.source);
 	});
 	if (error) {
 		rpc.notify.error.execute({

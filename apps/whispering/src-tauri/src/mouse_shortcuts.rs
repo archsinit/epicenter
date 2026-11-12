@@ -25,6 +25,7 @@ pub struct Binding {
 #[serde(rename_all = "camelCase")]
 struct Action {
     command_id: String,
+    source: String,
     state: &'static str,
 }
 
@@ -108,8 +109,8 @@ fn start_worker(inner: Arc<Inner>, app: tauri::AppHandle) -> Result<(), String> 
                 if matches!(event_type, CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput) {
                     callback_inner.healthy.store(false, Ordering::Relaxed);
                     if let Ok(mut policy) = callback_inner.policy.lock() {
-                        for (command_id, _) in policy.release_all() {
-                            let _ = actions_tx.send(Action { command_id, state: "Released" });
+                        for (button, command_id) in policy.release_all() {
+                            let _ = actions_tx.send(Action { command_id, source: format!("mouse-{button}"), state: "Released" });
                         }
                     }
                     return CallbackResult::Keep;
@@ -125,7 +126,7 @@ fn start_worker(inner: Arc<Inner>, app: tauri::AppHandle) -> Result<(), String> 
                 let (suppress, action) = policy.handle(button, kind);
                 drop(policy);
                 if let Some((command_id, pressed)) = action {
-                    let _ = actions_tx.send(Action { command_id, state: if pressed { "Pressed" } else { "Released" } });
+                    let _ = actions_tx.send(Action { command_id, source: format!("mouse-{button}"), state: if pressed { "Pressed" } else { "Released" } });
                 }
                 if suppress { CallbackResult::Drop } else { CallbackResult::Keep }
             },

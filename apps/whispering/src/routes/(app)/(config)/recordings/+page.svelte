@@ -63,8 +63,9 @@
 	 * @returns {(args: { getValue: () => string }) => string}
 	 */
 	function formattedCell(formatString: string) {
-		return ({ getValue }: { getValue: () => string }) => {
-			const value = getValue();
+		return ({ getValue }: { getValue: () => unknown }) => {
+			const raw = getValue();
+			const value = typeof raw === 'string' ? raw : '';
 			if (!value) return '';
 			const date = new Date(value);
 			if (Number.isNaN(date.getTime())) return value;
