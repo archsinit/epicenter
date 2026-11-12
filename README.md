@@ -6,6 +6,6 @@ This fork adds persistent Dock behaviour, a floating waveform and processing ind
 
 Intel macOS only. We may add other platforms if there are requests.
 
-[Download the test build](https://github.com/archsinit/epicenter/actions/runs/43245643126/artifacts/13959012192). Built and unit-tested on Intel macOS; interactive testing is still pending. Ad-hoc signed, not notarized.
+Work in progress. The first Mac startup test found a launch crash; a fix is being tested. Please do not use the earlier CI builds.
 
 [AGPL-3.0](LICENSE).

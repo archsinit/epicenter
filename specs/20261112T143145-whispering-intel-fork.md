@@ -17,7 +17,7 @@ Base: upstream v7.10.0 (a7c37a8c18c396764a1db7d6af017fc6502aeb32).
 - [ ] Validate types/builds and test recording, silence, transcription, errors, Dock reopening, close/hide, and explicit quit on Intel macOS. Builds/tests are pre-approved.
 - [ ] Update README to describe completed changes only after implementation and validation.
 - [x] Commit/push incremental changes and make whispering-intel the default branch. Commits/pushes are pre-approved.
-- [ ] Verify the Intel-only binary architecture, fork identity and signature on Mac, and run a clearly limited app startup smoke test if the runner has a GUI login session.
+- [ ] Verify the Intel-only binary architecture, fork identity and signature on Mac, and pass a clearly limited app startup smoke test. The first actual launch failed on 12 November; fix native updater initialization and CI failure propagation, then rerun.
 
 ## README draft (after implementation)
 
@@ -34,4 +34,4 @@ Built only for Intel macOS. We may add other platforms if there are requests.
 
 ## Review
 
-Implementation approved; progress and blockers are tracked in WORK-STATE.md. Scope expanded to shortcuts and explicit cleanup control; the final README must reflect this instead of claiming only two changes. The fork's default branch is whispering-intel. On 12 November 2026, CI run 43245643126 successfully built the app on GitHub's macos-15-intel runner, passed frontend types and all 19 tests (seven Bun and twelve native Rust), and uploaded the test app. The downloaded archive passed integrity, fork identity, executable-mode and x86_64 Mach-O inspection on Linux. README now links that test build with explicit signing/interactive-test caveats. Additional Mac signature/startup validation is queued in run 43253897031. Interactive macOS behaviour remains unverified; this development server is Linux.
+Implementation approved; progress and blockers are tracked in WORK-STATE.md. Scope expanded to shortcuts and explicit cleanup control; the final README must reflect this instead of claiming only two changes. The fork's default branch is whispering-intel. On 12 November 2026, CI run 43245643126 successfully built the app on GitHub's macos-15-intel runner, passed frontend types and all 19 tests (seven Bun and twelve native Rust), and uploaded the test app. The downloaded archive passed integrity, fork identity, executable-mode and x86_64 Mach-O inspection on Linux. Run 43253897031 passed architecture/identity/signature checks on macOS 15.7.9 x86_64, but its actual startup report found an updater-initialization panic. The job's green status was false: piping verification into tee masked its failure. README download link is withdrawn. Removing native updater initialization and enforcing Bash/pipefail, with offline pipeline regression tests and always-preserved diagnostics, is the next fix being validated. Interactive macOS behaviour remains unverified; this development server is Linux.

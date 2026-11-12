@@ -146,7 +146,7 @@ pub async fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Fork updates are manual; do not initialize the upstream updater plugin.
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             indicator::create_window(app)?;

@@ -9,6 +9,7 @@ on:
       - 'packages/**'
       - 'bun.lock'
       - 'scripts/verify-intel-app.sh'
+      - 'scripts/test-intel-verification.sh'
       - '.github/workflows/intel-macos.yml'
 
 permissions:
@@ -22,6 +23,9 @@ jobs:
   build:
     runs-on: macos-15-intel
     timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -35,6 +39,8 @@ jobs:
           workspaces: apps/whispering/src-tauri -> target
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
+      - name: Test verification failure propagation
+        run: bash scripts/test-intel-verification.sh
       - name: Check frontend types
         run: bun run --cwd apps/whispering check
       - name: Test cleanup and parallel input policies
@@ -49,9 +55,18 @@ jobs:
         run: cargo test --lib --target x86_64-apple-darwin
       - name: Verify Intel bundle and smoke-test app startup
         run: |
+          set -o pipefail
           bash scripts/verify-intel-app.sh \
             'apps/whispering/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Whispering Intel.app' \
             2>&1 | tee Whispering-Intel-validation.txt
+      - name: Preserve validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Whispering-Intel-validation
+          path: Whispering-Intel-validation.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Package app
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
