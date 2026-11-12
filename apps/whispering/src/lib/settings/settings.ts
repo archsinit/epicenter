@@ -206,6 +206,7 @@ export const Settings = type({
 	'transcription.whispercpp.modelPath': "string = ''",
 	'transcription.parakeet.modelPath': "string = ''",
 
+	'transformations.cleanupEnabled': 'boolean = false',
 	'transformations.selectedTransformationId': 'string | null = null',
 
 	'completion.openrouter.model': "string = 'mistralai/mixtral-8x7b'",
@@ -231,6 +232,7 @@ export const Settings = type({
 	'analytics.enabled': 'boolean = true',
 
 	// Local shortcuts (in-app shortcuts)
+	'shortcuts.local.pressEnter': 'string | null = null',
 	'shortcuts.local.toggleManualRecording': "string | null = ' '",
 	'shortcuts.local.startManualRecording': 'string | null = null',
 	'shortcuts.local.stopManualRecording': 'string | null = null',
@@ -243,6 +245,7 @@ export const Settings = type({
 	'shortcuts.local.runTransformationOnClipboard': "string | null = 'r'",
 
 	// Global shortcuts (system-wide shortcuts)
+	'shortcuts.global.pressEnter': 'string | null = null',
 	'shortcuts.global.toggleManualRecording': type('string | null').default(
 		`${CommandOrControl}+Shift+;`,
 	),

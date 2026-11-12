@@ -8,6 +8,7 @@ import { rpc } from './';
 import { defineMutation } from './_client';
 import { db } from './db';
 import { delivery } from './delivery';
+import { automaticCleanupId } from './cleanup-policy';
 import { notify } from './notify';
 import { recorder } from './recorder';
 import { sound } from './sound';
@@ -680,9 +681,8 @@ async function processRecordingPipeline({
 		toastId: transcribeToastId,
 	});
 
-	// Determine if we need to chain to transformation
-	const transformationId =
-		settings.value['transformations.selectedTransformationId'];
+	// A selected transformation alone must never opt the user into an LLM call.
+	const transformationId = automaticCleanupId(settings.value);
 
 	// Check if transformation is valid if specified
 	if (!transformationId) return;

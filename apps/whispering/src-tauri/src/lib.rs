@@ -102,7 +102,23 @@ pub async fn run() {
         }))
         .build();
 
-    let mut builder = tauri::Builder::default().plugin(log_plugin);
+    let mut builder = tauri::Builder::default()
+        .plugin(log_plugin)
+        .on_window_event(|window, event| {
+            // Keep the main webview and global shortcuts alive after closing its window.
+            // Command-Q and the application menu still quit normally.
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        warn!("Could not hide main window: {}", error);
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (window, event);
+        });
 
     // Try to get APTABASE_KEY from environment, use empty string if not found
     let aptabase_key = option_env!("APTABASE_KEY").unwrap_or("");
@@ -170,6 +186,15 @@ pub async fn run() {
         .expect("error while building tauri application");
 
     app.run(|handler, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = &event {
+            if let Some(window) = handler.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+
         // Only track events if Aptabase is enabled (key is not empty)
         if !aptabase_key.is_empty() {
             match event {

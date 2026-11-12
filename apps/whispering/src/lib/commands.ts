@@ -30,6 +30,12 @@ type SatisfiedCommand = {
 
 export const commands = [
 	{
+		id: 'pressEnter',
+		title: 'Press Enter in the active app',
+		on: ['Pressed'],
+		callback: () => rpc.text.simulateEnterKeystroke.execute(),
+	},
+	{
 		id: 'pushToTalk',
 		title: 'Push to talk',
 		on: ['Pressed', 'Released'],
