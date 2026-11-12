@@ -1,10 +1,14 @@
 # Whispering Intel work state
 
-## Current status: awaiting interactive Intel Mac acceptance
+## Current status: direct testing on Roger's Intel Mac
 
-Server-side implementation and real Intel Mac build/unit/signature/startup validation are complete for test commit `dd43322`. This is NOT confirmation that microphone capture, Dock/focus, actual mouse interception, text insertion/Enter or cleanup provider calls work end to end. No authorized remote access to Roger's Mac has been provided.
+Roger provided an existing SSH configuration and explicitly authorized direct Mac testing. Connection and GUI automation work. Read workspace `pi-web/whispering-mac-testing.md` for PRIVATE access details, exact installed app path, safe compound bundle-ID targeting, current settings and test progress. Do not publish the host/login details or raw UI dumps.
 
-The 30-minute continuation scheduler is PAUSED via workspace `pi-web/whispering-work.paused`. Resume after Roger supplies acceptance results, authorized Mac access, or a new task. Do not repeat model calls when no independent useful step remains. Do not call the entire project done while interactive checks are pending.
+Installed and signature-verified exact test build `dd43322` on Roger's Intel macOS **26.7.1** without replacing or modifying his existing upstream Whispering app. Confirmed actual fork UI rendering, close-to-hide, persistent Dock icon, Dock-click reopening of the same process, explicit Quit of the fork only, and relaunch. UI settings confirmed automatic Enter off, separate Enter shortcut present/unassigned, cleanup toggle 0 -> 1 -> 0 restored off, and mouse bindings empty (draft Add/Remove tested without applying a binding).
+
+The fork reports Microphone and Accessibility permissions are not granted. User must approve normal OS permissions; do not bypass controls or change security settings. No microphone recording/provider call or Enter injection was attempted; actual waveform, mouse suppression and transcription pipeline are not yet verified. No chat message sent, clipboard read/changed, or upstream app configuration changed.
+
+The 30-minute scheduler is being resumed because useful direct-Mac testing is now possible. While permissions await user action, investigate upload-fixture/localhost-mock pipeline testing with the fork's copy/paste/Enter disabled, so no real provider credentials or physical capture are needed. See the private note's independent-next-steps section. Do not repeatedly call the model once no independent useful task remains.
 
 Roger approved implementation, builds/tests and incremental commits/pushes on 12 November 2026; do not ask for routine approval again. Read root/app AGENTS.md and relevant rules.
 
@@ -51,18 +55,18 @@ Separate diagnostic report artifact: 13964457142.
 - `dd43322` fixed both problems by removing native updater registration, using explicit Bash/pipefail, adding pipeline regressions, and preserving failure diagnostics. Verified fresh Mac run now really passes.
 - Earlier evidence remains under `/tmp/whispering-intel-artifact-e5724c4/Whispering-Intel-validation.txt`. File `/tmp/whispering-intel-mac-startup-success.log` is misleadingly named; it contains the historical failed startup report, not a success.
 
-## User acceptance required
+## Direct Mac tests and remaining acceptance
 
 Checklist: `apps/whispering/docs/intel-testing.md`.
 
-1. Install the corrected artifact on Roger's Intel Mac using normal approval/permissions.
-2. Check window close keeps Dock app/shortcuts alive, Dock click reopens, explicit Quit exits; check full-screen/Spaces/multiple monitors and typing focus.
+1. DONE: Installed exact corrected artifact and verified SHA/signature directly on Roger's Intel Mac. Normal Microphone/Accessibility permissions still need user approval.
+2. DONE: Window close hides while process/Dock persist; actual Dock click reopens same PID; native menu Quit exits fork only; relaunch renders UI. Still test full-screen/Spaces/multiple monitors, typing focus and shortcut operation while hidden.
 3. Configure intended microphone with default CPAL, dictate into a text field; confirm actual waveform responds to voice and settles on silence, processing animation appears, text arrives without automatic Enter.
 4. Configure the independent Enter shortcut and optional mouse buttons. Confirm keyboard still works, bound side button does not trigger Back/Forward or drag behaviour, unassigned buttons remain normal, permission failures and push-to-talk release are safe.
 5. Leave a transformation selected but cleanup OFF; verify no automatic cleanup run/provider call. Enable cleanup deliberately and verify selected transformation runs.
 6. Record Mac model/macOS, mic, mouse/driver, tested commit and actual outcomes. Fix any reported failures with tests; do not mark unperformed checks passed.
 
-User previously asked that tests run on a Mac, which CI now does for compilation/unit tests/signature/process startup. Physical-device/UI behaviour still needs their Mac or normal authorized remote access. Do not work around credentials, permissions or security restrictions.
+Authorized direct Mac access is now available and initial real UI/Dock tests passed, in addition to CI. Continue tests yourself using the private workspace connection note. Remaining physical-input checks require the fork's normal user-approved Microphone/Accessibility permissions. Do not work around credentials, permissions or security restrictions.
 
 ## Local tooling and checks
 
@@ -70,10 +74,10 @@ User previously asked that tests run on a Mac, which CI now does for compilation
 - App frontend check and production build passed locally. Eighteen pure policy/signal tests passed locally before Mac testing (Mac additionally tests the native meter integration).
 - Root `bun check` was attempted but fails in unrelated `apps/demo-mcp` because its tsc executable is missing. Do not claim whole-monorepo checking passes. `/tmp/whispering-workspace-check.log`.
 - Baseline v7.10.0 worktree `/tmp/whispering-intel-baseline` originally had 33 frontend type errors; narrow fixes made the fork's app check pass.
-- This final review changes documentation/status only; no application code changed after the successful dd43322 Mac run.
+- Direct-Mac review currently changes documentation/status only; no production application code changed after the successful dd43322 Mac run. Keep all original upstream settings/processes untouched.
 
 ## Scheduler controls
 
-Workspace `pi-web/whispering-work.cjs`, cron every 30 minutes, target this chat. Pause flag: `pi-web/whispering-work.paused`; remove only when useful work can resume. `node pi-web/whispering-work.cjs --dry-run` reports Paused while the flag exists, without API/model calls.
+Workspace `pi-web/whispering-work.cjs`, cron every 30 minutes, target this chat. Pause flag: `pi-web/whispering-work.paused`; it is being removed now that authorized direct Mac testing and independent fixture tests can proceed. `node pi-web/whispering-work.cjs --dry-run` reports Paused while the flag exists, without API/model calls.
 
 The runner double-checks idle state and skips busy/unavailable/unknown states without intentional queueing/steering. Slot receipt prevents duplicate attempts; no session rollover. Host API lacks atomic idle-only admission, so a narrow race remains. Five offline scheduler tests previously passed. Never commit private session targets, receipts or logs.
