@@ -1,6 +1,10 @@
 # Whispering Intel work state
 
-## Current status: direct testing on Roger's Intel Mac
+## Current status: focused validation of fork changes
+
+Roger clarified: test ONLY our changes, not the whole upstream app. Do not add broad speech-recognition/provider-quality or unrelated regression testing. Remaining scope is Dock persistence, live waveform/processing indicator, independent Enter, parallel keyboard/mouse bindings with suppression, and the explicit cleanup toggle.
+
+Latest review: the Mac desktop was in use for Roger's remote-access setup, so no foreground/UI actions were taken. Added nine tests of the actual indicator controller with native IPC mocked: phase transitions, new-recording priority over old jobs, overlapping jobs, meter-unavailable state, serialized IPC, recovery after IPC failure, temporary error expiry, and no native IPC in browser mode. All nine pass locally; combined fork policy suite is 16 passing tests and app type checking has zero errors/17 inherited warnings. No production code or installed Mac app/signature changed. The CI test command now includes these cases; inspect its next real Mac run before claiming they passed there. This does NOT verify visible animation or native focus.
 
 Roger provided an existing SSH configuration and explicitly authorized direct Mac testing. Connection and GUI automation work. Read workspace `pi-web/whispering-mac-testing.md` for PRIVATE access details, exact installed app path, safe compound bundle-ID targeting, current settings and test progress. Do not publish the host/login details or raw UI dumps.
 
@@ -10,7 +14,7 @@ The fork reports Microphone and Accessibility permissions are not granted. User 
 
 NEW: Actual app upload/transcription/cleanup routing was tested on Roger's Mac using a silent WAV and a loopback-only canned provider. Cleanup OFF with a valid transformation SELECTED produced only a transcription request. Cleanup ON produced transcription followed by exactly one chat-completion request; the saved transformation run was completed with the expected cleaned fixture output. Three uploads total: three transcription POSTs and one cleanup POST. This validates actual pipeline consent/routing, NOT speech recognition or a real provider's quality.
 
-The 30-minute scheduler is active while useful direct-Mac tests remain. Next independent checks: processing-indicator visibility/phase/focus during a delayed localhost upload, plus safe window/full-screen behaviour. Reuse scripts/integration and the private Mac note; disable delivery before any fixture test and restore it afterward. Do not repeatedly call the model once no independent useful task remains. Physical input testing remains blocked by normal OS permission grants.
+The 30-minute scheduler remains active for the new focused Mac CI result. Next direct-Mac check, only when the desktop is available: processing-indicator visibility/phase/focus during a delayed localhost upload. This tests our indicator change, not upstream transcription quality. Reuse scripts/integration safely and restore settings afterward. Do not take over an active remote-access session. Physical waveform/Enter/mouse tests remain blocked by normal OS permission grants. After the focused CI result, if only permission/desktop-dependent validation remains, pause rather than invent broad app tests or repeatedly consume model calls.
 
 Roger approved implementation, builds/tests and incremental commits/pushes on 12 November 2026; do not ask for routine approval again. Read root/app AGENTS.md and relevant rules.
 
@@ -65,7 +69,7 @@ Checklist: `apps/whispering/docs/intel-testing.md`.
 2. DONE: Window close hides while process/Dock persist; actual Dock click reopens same PID; native menu Quit exits fork only; relaunch renders UI. Still test full-screen/Spaces/multiple monitors, typing focus and shortcut operation while hidden.
 3. Configure intended microphone with default CPAL, dictate into a text field; confirm actual waveform responds to voice and settles on silence, processing animation appears, text arrives without automatic Enter.
 4. Configure the independent Enter shortcut and optional mouse buttons. Confirm keyboard still works, bound side button does not trigger Back/Forward or drag behaviour, unassigned buttons remain normal, permission failures and push-to-talk release are safe.
-5. DONE for localhost canned-provider routing through the actual Mac app: fixture selected + cleanup OFF caused no completion call; cleanup ON caused one completion call and a completed run with expected output. Still unverified: real-provider transcription/cleanup quality. See scripts/integration/README.md for exact results and safety constraints.
+5. DONE for localhost canned-provider routing through the actual Mac app: fixture selected + cleanup OFF caused no completion call; cleanup ON caused one completion call and a completed run with expected output. Real-provider model quality is not part of the fork-change acceptance scope. See scripts/integration/README.md for exact results and safety constraints.
 6. Record Mac model/macOS, mic, mouse/driver, tested commit and actual outcomes. Fix any reported failures with tests; do not mark unperformed checks passed.
 
 Authorized direct Mac access is now available and initial real UI/Dock tests passed, in addition to CI. Continue tests yourself using the private workspace connection note. Remaining physical-input checks require the fork's normal user-approved Microphone/Accessibility permissions. Do not work around credentials, permissions or security restrictions.

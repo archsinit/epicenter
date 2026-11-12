@@ -43,8 +43,8 @@ jobs:
         run: bash scripts/test-intel-verification.sh
       - name: Check frontend types
         run: bun run --cwd apps/whispering check
-      - name: Test cleanup and parallel input policies
-        run: bun test apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts
+      - name: Test fork indicator, cleanup and input policies
+        run: bun test apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts
       - name: Build Intel Mac app
         working-directory: apps/whispering
         env:

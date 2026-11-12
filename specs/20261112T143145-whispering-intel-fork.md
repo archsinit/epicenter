@@ -2,6 +2,8 @@
 
 Base: upstream v7.10.0 (a7c37a8c18c396764a1db7d6af017fc6502aeb32).
 
+Scope clarification from Roger: validate only the fork changes, not broad upstream behaviour or real-provider speech-recognition quality.
+
 ## Plan
 
 - [x] Fork EpicenterHQ/epicenter to archsinit/epicenter.
@@ -15,7 +17,8 @@ Base: upstream v7.10.0 (a7c37a8c18c396764a1db7d6af017fc6502aeb32).
 - [ ] Add a non-focus-stealing floating recording indicator with a waveform driven by real microphone levels and a distinct processing animation. Hide after completion; show clear failures.
 - [x] Limit fork release builds to Intel macOS. Use the fork's identity and ad-hoc signing; disable upstream updates.
 - [ ] Complete Intel Mac acceptance: physical recording/silence, input permissions, actual mouse suppression and Enter injection remain pending. Dock lifecycle and localhost fixture transcription/cleanup routing have passed; builds/tests are pre-approved.
-- [ ] Verify processing indicator visibility/phase/focus during delayed localhost fixture uploads; no microphone permission or real API key required.
+- [x] Add focused indicator-controller regression coverage: nine local tests passed, combined fork policy suite 16 passed; native IPC is mocked. CI now includes the new cases; Mac result pending.
+- [ ] Verify processing indicator visibility/phase/focus during a delayed localhost fixture upload when the desktop is available; no microphone permission or real API key required. Do not interrupt Roger's active remote-access session.
 - [ ] Agree a persistent signing strategy; no signing identity is currently installed and no certificate/keychain changes have been approved.
 - [ ] Update README to describe completed changes only after implementation and validation.
 - [x] Commit/push incremental changes and make whispering-intel the default branch. Commits/pushes are pre-approved.
