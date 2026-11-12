@@ -1,70 +1,79 @@
 # Whispering Intel work state
 
-Roger approved implementation, builds/tests, and incremental commits/pushes on 12 November 2026. Do not request routine approval again. He subsequently explicitly required testing on a Mac, not just Linux. Read root/app AGENTS.md and relevant rules.
+## Current status: awaiting interactive Intel Mac acceptance
 
-## Current blocker (16:30 UTC review)
+Server-side implementation and real Intel Mac build/unit/signature/startup validation are complete for test commit `dd43322`. This is NOT confirmation that microphone capture, Dock/focus, actual mouse interception, text insertion/Enter or cleanup provider calls work end to end. No authorized remote access to Roger's Mac has been provided.
 
-The real Mac STARTUP TEST FAILED for e5724c4/1812459: the app panics during initialization because the updater plugin is still registered but plugins.updater was removed. The Actions job incorrectly reported success because the default shell masked the verifier's nonzero exit through tee. Do NOT recommend earlier artifacts as usable. README download link has been withdrawn. This cycle removes native updater initialization, enables explicit Bash/pipefail, adds three offline failure-propagation regression checks, and preserves diagnostics even on CI failure. Local shell regressions and frontend types/Bun tests pass; the fix still needs a fresh real Mac build/startup run. Scheduler must remain active for that debugging, not pause as if only user acceptance remains.
+The 30-minute continuation scheduler is PAUSED via workspace `pi-web/whispering-work.paused`. Resume after Roger supplies acceptance results, authorized Mac access, or a new task. Do not repeat model calls when no independent useful step remains. Do not call the entire project done while interactive checks are pending.
 
-## Scope
+Roger approved implementation, builds/tests and incremental commits/pushes on 12 November 2026; do not ask for routine approval again. Read root/app AGENTS.md and relevant rules.
 
-- Persistent Dock app: close hides, Dock/Finder reopen, explicit Quit exits.
-- Floating non-focus-stealing indicator: actual microphone waveform, distinct processing/cleanup animation and errors.
-- Separate configurable Enter action; automatic submission off by default.
-- Optional mouse bindings, empty by default, alongside keyboard bindings. Suppress assigned buttons' normal behaviour. Reserve primary/secondary clicks for usability.
-- Explicit automatic LLM cleanup toggle, off by default, even with a transformation selected.
-- Intel macOS builds only. Short honest README; preserve upstream license.
+## Repository and scope
+
+- Fork: https://github.com/archsinit/epicenter
+- Default branch: `whispering-intel`, based on upstream v7.10.0.
+- Implemented: persistent Dock lifecycle (close hides, Dock/Finder reopens, explicit Quit exits); separate floating non-focusable indicator with real CPAL microphone levels and distinct processing/cleanup/error states; separate configurable Enter command; optional mouse bindings alongside keyboard bindings; explicit off-by-default automatic LLM cleanup toggle.
+- Mouse defaults empty. Middle/extra buttons 2–31 can be assigned; primary/secondary clicks reserved. Active Quartz tap suppresses assigned down/up/drag, preserves original release across reassignment, and releases held actions on timeout. Keyboard and multiple mouse push-to-talk sources are coordinated.
+- Actual waveform is CPAL-only. Navigator/FFmpeg show meter-unavailable instead of a fabricated waveform; VAD waveform integration is not included.
+- Own app identity `com.archsinit.whispering-intel`, ad-hoc signing, Intel-only workflow, upstream updater disabled. Original unrelated workflows archived under `.github/upstream-workflows`.
 - Deferred: chunked/10-second transcription, incremental pasting, speed work, security-hardening project.
 
-## Repository
+## Verified evidence
 
-- https://github.com/archsinit/epicenter
-- Default branch: whispering-intel, based on upstream v7.10.0.
-- f8fe080: cleanup consent, Enter action, Dock lifecycle; pushed.
-- 23c2a80: floating indicator, Intel-only workflow; pushed.
-- c73be90: native suppressible mouse bindings; pushed.
-- 1812459: validation fixes/parallel input coordination; pushed, real Intel Mac CI passed.
-- e5724c4: architecture/signature verification and limited Mac startup smoke step; pushed during the 16:00 UTC review after the previous run completed.
-- Workflow permission initially blocked push; Roger ran gh auth refresh -s workflow. Scope is now present and pushes succeeded.
+**Current test build: `dd43322`**, [CI run 43259930929](https://github.com/archsinit/epicenter/actions/runs/43259930929).
 
-## Implemented
+Real Intel Mac host: macOS **15.7.9**, **x86_64**. Downloaded and read the actual validation report, not only Actions' green conclusion. Passed:
 
-- Cleanup toggle in Transcription settings. Automatic pipeline checks explicit consent; manual transformations remain available.
-- Standalone Enter command in keyboard/mouse command registry. Keyboard binding starts blank; automatic Enter defaults remain false.
-- Native macOS close-to-hide and Dock/Finder reopen handlers.
-- Separate transparent non-focusable indicator window. CPAL stream feeds real RMS levels (no second mic stream); quiet/missing-frame indication, processing spinner, cleanup state and failure indication. Concurrent previous jobs cannot hide an active take.
-- Waveform currently CPAL-only. Navigator/FFmpeg explicitly show meter-unavailable, never a fabricated waveform. VAD waveform integration still needs review if we want it in scope.
-- Mouse settings tab: assign/remove optional middle/extra buttons (2–31), configure action, apply/retry, active status. Keyboard settings are independent.
-- Native Quartz active event tap suppresses down/up/drag for bound buttons. Policy preserves the original release if bindings change mid-click; timeout releases held actions. Event delivery is off the event-tap thread. No tap is created with empty bindings at initial setup.
-- Parallel push-to-talk uses source-aware held-input tracking, including multiple mouse buttons; quick release during setup is checked again once start completes.
-- Own app identity com.archsinit.whispering-intel, own name, ad-hoc signing. Upstream updater disabled. Original upstream workflows archived under .github/upstream-workflows so they do not deploy or publish unrelated builds.
+- Frozen dependency install and frontend types (zero errors, 17 inherited warnings).
+- Seven Bun policy tests (cleanup consent and overlapping input sources).
+- Twelve native Rust tests (three audio RMS, one meter sample, eight mouse policy).
+- Three shell regressions: nonzero pipeline exit preserved through tee, successful pipeline report, invalid bundle fails with diagnostics retained.
+- Actual Intel Tauri release build and app packaging.
+- Intel-only Mach-O, correct fork identity and deep/strict macOS signature verification.
+- **App process stayed alive for eight seconds in a Mac GUI login session.** No startup skip. Expected final `Terminated: 15` line is the smoke-test cleanup stopping its own child, not a startup crash.
 
-## Validation
+This liveness check does NOT prove window/UI readiness or interactive features. Automated tests make no live provider API calls and do not capture a physical microphone.
 
-- Bun 1.3.3: /home/piweb/.local/bin/bun. Rust/rustfmt installed under /home/piweb/.cargo/bin. Add both to PATH.
-- Frozen Bun install passes after small lockfile refresh (upstream app version was stale).
-- Latest frontend production build PASSED on Linux after all current changes. Log /tmp/whispering-final-build.log.
-- App check initially had 31 inherited errors; untouched v7.10.0 baseline had 33 (same dependencies). Fixed the inherited errors with narrow index guards, optional callback defaults, updated notification fields, async upload handler, date-cell typing and shared CopyButton prop compatibility. Latest app check after all changes: ZERO errors, 17 inherited warnings. Log /tmp/whispering-final-check.log.
-- All 18 policy/signal tests PASSED locally after all changes: seven Bun tests (cleanup/parallel input), eight pure Rust mouse tests, three pure Rust audio tests. These do not substitute for real Mac acceptance tests.
-- Root bun check was attempted but fails in unrelated apps/demo-mcp because its tsc executable is not installed. Do not claim the whole monorepo check passes. Log /tmp/whispering-workspace-check.log.
-- Real Intel macOS workflow .github/workflows/intel-macos.yml uses macos-15-intel, type checks, Bun policy tests, actual Tauri build, native cargo unit tests, and uploads an ad-hoc-signed app zip. No live provider API calls.
-- SUCCESS: CI run 43245643126 (commit 1812459) completed on real Intel Mac runner GitHub Actions 1000000293. Frozen dependency install, frontend type checks, seven Bun policy tests, actual Intel Mac Tauri build, ALL TWELVE native Rust tests, packaging and artifact upload PASSED. Native tests cover three audio RMS calculations, one live-meter sample calculation, and eight mouse policy cases. Total: 19 tests on Mac. Build finished at 15:30 UTC and native tests at 15:35 UTC. Log downloaded to /tmp/whispering-intel-mac-success.log.
-- Artifact 13959012192: https://github.com/archsinit/epicenter/actions/runs/43245643126/artifacts/13959012192 . Local download /tmp/whispering-intel-artifact-1812459/Whispering-Intel-macOS.zip, 15,793,304 bytes. Linux archive/Mach-O inspection passed: uncorrupted zip, correct fork bundle ID, executable bit retained, thin x86_64 binary. Inner zip SHA-256: 4bca503f444bed8a6851523b26029f8de94cbdf20dc2e26498d5533e71cde37a . This static Linux inspection does NOT verify the Mac signature or runtime behaviour.
-- Run 43253897031 (e5724c4) finished with a misleading green status. Its actual validation report confirms architecture/fork ID/deep-strict signature verification PASSED on macOS 15.7.9 x86_64, but the launched app ABORTED with PluginInitialization("updater", "invalid type: null, expected struct Config"). Startup FAILED. Root cause: native updater registration remained after its config was removed. The verification script correctly returned nonzero, but the CI pipeline 'script | tee' hid the failure without pipefail. Local evidence: /tmp/whispering-intel-artifact-e5724c4/Whispering-Intel-validation.txt and /tmp/whispering-intel-mac-startup-success.log (filename predates discovering the failure; do not trust the name). Artifact 13963395545 is also broken; do not offer it. Both runs' unit/build successes remain valid evidence, NOT proof the app launches.
-- Current fix removes tauri_plugin_updater registration entirely, sets the workflow's run shell to explicit Bash plus set -o pipefail at the verification pipeline, adds scripts/test-intel-verification.sh to test failing/successful pipelines and invalid bundles, and always uploads a diagnostic-only validation artifact when generated. Normal app packaging/upload must only happen after successful verification. Three shell regression checks PASSED locally, seven Bun tests PASSED, frontend check ZERO errors/17 warnings; log /tmp/whispering-updater-fix-check.log. Mac execution of the fix is still pending.
-- Interactive acceptance checklist: apps/whispering/docs/intel-testing.md. No remote Mac access is configured/provided so far. Asked Roger whether he has a remotely accessible Mac or will test the installer himself. Physical mic, mouse-driver suppression, Dock/Spaces/full-screen and permission behaviours remain unverified.
+### Current artifact
 
-## Next steps
+Use ONLY [artifact 13963969603](https://github.com/archsinit/epicenter/actions/runs/43259930929/artifacts/13963969603). It includes `Whispering-Intel-macOS.zip` and `Whispering-Intel-validation.txt`. Ad-hoc signed, not Developer ID signed or notarized. Follow normal macOS approval prompts; never disable Gatekeeper. Actions artifacts expire after 14 days; this is not a permanent release URL.
 
-1. Commit/push this startup/pipeline fix if not already pushed, then inspect the newest Intel Mac run. Read the actual validation report/log, not only the job's conclusion. Keep earlier broken app artifacts withdrawn.
-2. Require the new run to pass real Mac build, all 19 tests, architecture/identity/signature checks AND eight-second startup liveness. If there is no GUI login session it must explicitly skip startup, not claim a pass; current runner did have a GUI session and caught the crash.
-3. Debug any remaining initialization/signature/startup failures. The corrected pipeline must fail the job on verifier failure and preserve diagnostics. Do not replace Mac evidence with Linux checks. Avoid unnecessary code pushes while CI is running.
-4. Once the corrected app genuinely starts, offer that new artifact only, ad-hoc signed/not notarized, with interactive testing still pending. Read the full report before updating README. Artifacts expire after 14 days.
-5. Physical microphone, Dock/Spaces/focus, actual mouse/driver suppression, paste/Enter, permission failures and cleanup provider calls still need interactive Mac acceptance. No remote Mac access has been provided. Use normal authorized access if Roger supplies it; otherwise ask for his checklist results. Do not disable OS protections or bypass permissions.
-6. Pause the scheduler only when server-side implementation/debugging and real Mac startup validation are complete and only interactive user validation remains. Do not claim the project is done before those checks.
+Local download: `/tmp/whispering-intel-artifact-dd43322/`.
+Inner zip: 15,595,111 bytes; SHA-256 `cfdb321b582cc2e93405016560ca44dda9196ee8094ff6b89bd6e41a5f08ebb7`.
+Linux archive inspection additionally confirmed zip integrity, app identity, x86_64 Mach-O and executable bit. This Linux check is separate from actual Mac signature/startup evidence.
+Full run log: `/tmp/whispering-intel-mac-dd43322.log`.
+Separate diagnostic report artifact: 13964457142.
 
-## Scheduler
+### Earlier broken builds: do not offer
 
-Workspace pi-web/whispering-work.cjs; cron every 30 minutes targeting this chat. Idle-only double state check, no intentional queuing/steering, fail closed on unknown state, slot receipt prevents duplicates. No session rollover. Five offline tests passed; live read-only check correctly reported busy. Cron 15:00 log also skipped busy state. Host API lacks atomic idle-only admission, so a narrow race remains.
+- 1812459 / run 43245643126: compilation and 19 tests passed, but no startup test existed. Artifact 13959012192 crashes on launch.
+- e5724c4 / run 43253897031: architecture/signature passed, actual app startup ABORTED because updater initialization remained after its config was removed. CI falsely reported green because `script | tee` lacked pipefail. Artifact 13963395545 is broken too.
+- `dd43322` fixed both problems by removing native updater registration, using explicit Bash/pipefail, adding pipeline regressions, and preserving failure diagnostics. Verified fresh Mac run now really passes.
+- Earlier evidence remains under `/tmp/whispering-intel-artifact-e5724c4/Whispering-Intel-validation.txt`. File `/tmp/whispering-intel-mac-startup-success.log` is misleadingly named; it contains the historical failed startup report, not a success.
 
-Touch workspace pi-web/whispering-work.paused to pause. Never commit session targets/receipts/logs. Pause once all server-implementable work and native CI debugging are complete and only interactive user Mac validation remains, or if Roger asks to stop. Do not keep spending model calls if no useful step is possible.
+## User acceptance required
+
+Checklist: `apps/whispering/docs/intel-testing.md`.
+
+1. Install the corrected artifact on Roger's Intel Mac using normal approval/permissions.
+2. Check window close keeps Dock app/shortcuts alive, Dock click reopens, explicit Quit exits; check full-screen/Spaces/multiple monitors and typing focus.
+3. Configure intended microphone with default CPAL, dictate into a text field; confirm actual waveform responds to voice and settles on silence, processing animation appears, text arrives without automatic Enter.
+4. Configure the independent Enter shortcut and optional mouse buttons. Confirm keyboard still works, bound side button does not trigger Back/Forward or drag behaviour, unassigned buttons remain normal, permission failures and push-to-talk release are safe.
+5. Leave a transformation selected but cleanup OFF; verify no automatic cleanup run/provider call. Enable cleanup deliberately and verify selected transformation runs.
+6. Record Mac model/macOS, mic, mouse/driver, tested commit and actual outcomes. Fix any reported failures with tests; do not mark unperformed checks passed.
+
+User previously asked that tests run on a Mac, which CI now does for compilation/unit tests/signature/process startup. Physical-device/UI behaviour still needs their Mac or normal authorized remote access. Do not work around credentials, permissions or security restrictions.
+
+## Local tooling and checks
+
+- Bun 1.3.3: `/home/piweb/.local/bin/bun`; Rust/rustfmt: `/home/piweb/.cargo/bin`. Add both to PATH.
+- App frontend check and production build passed locally. Eighteen pure policy/signal tests passed locally before Mac testing (Mac additionally tests the native meter integration).
+- Root `bun check` was attempted but fails in unrelated `apps/demo-mcp` because its tsc executable is missing. Do not claim whole-monorepo checking passes. `/tmp/whispering-workspace-check.log`.
+- Baseline v7.10.0 worktree `/tmp/whispering-intel-baseline` originally had 33 frontend type errors; narrow fixes made the fork's app check pass.
+- This final review changes documentation/status only; no application code changed after the successful dd43322 Mac run.
+
+## Scheduler controls
+
+Workspace `pi-web/whispering-work.cjs`, cron every 30 minutes, target this chat. Pause flag: `pi-web/whispering-work.paused`; remove only when useful work can resume. `node pi-web/whispering-work.cjs --dry-run` reports Paused while the flag exists, without API/model calls.
+
+The runner double-checks idle state and skips busy/unavailable/unknown states without intentional queueing/steering. Slot receipt prevents duplicate attempts; no session rollover. Host API lacks atomic idle-only admission, so a narrow race remains. Five offline scheduler tests previously passed. Never commit private session targets, receipts or logs.

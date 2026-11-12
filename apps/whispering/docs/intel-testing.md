@@ -6,6 +6,12 @@ Startup liveness does not prove window/UI readiness, physical microphone capture
 
 No live provider API calls are made by the automated tests. Use a dedicated low-budget key for the manual dictation tests.
 
+## Verified build
+
+Test commit `dd43322`, [CI run 43259930929](https://github.com/archsinit/epicenter/actions/runs/43259930929), passed on Intel macOS 15.7.9: frontend types, seven Bun tests, twelve native Rust tests, three CI failure-propagation checks, binary architecture/identity, deep-strict signature verification, and eight-second startup liveness in a GUI session. The cleanup signal printed after the startup pass is the test terminating its own app process, not a startup failure.
+
+Use [this app artifact](https://github.com/archsinit/epicenter/actions/runs/43259930929/artifacts/13963969603), not earlier builds. Previous artifacts have a known updater-initialization crash. The new artifact includes the actual validation report; it expires after 14 days. All interactive checks below remain unperformed.
+
 ## Installation
 
 Download the app artifact from this fork's Intel macOS workflow after a successful run. The initial build is ad-hoc signed, not Developer ID signed or notarized. Follow normal macOS approval prompts; do not disable Gatekeeper. The fork has its own app identity and stores data separately from upstream Whispering. Updates are manual; it does not install upstream releases.
