@@ -17,7 +17,7 @@ Scope clarification from Roger: validate only the fork changes, not broad upstre
 - [ ] Add a non-focus-stealing floating recording indicator with a waveform driven by real microphone levels and a distinct processing animation. Hide after completion; show clear failures.
 - [x] Limit fork release builds to Intel macOS. Use the fork's identity and ad-hoc signing; disable upstream updates.
 - [ ] Complete Intel Mac acceptance: physical recording/silence, input permissions, actual mouse suppression and Enter injection remain pending. Dock lifecycle and localhost fixture transcription/cleanup routing have passed; builds/tests are pre-approved.
-- [x] Add focused indicator-controller regression coverage: nine local tests passed, combined fork policy suite 16 passed; native IPC is mocked. CI now includes the new cases; Mac result pending.
+- [x] Add focused indicator-controller regression coverage: nine local tests passed, combined fork policy suite 16 passed; native IPC is mocked. The policy step also passed on Intel Mac CI run 43316942968; the app build passed, while later native tests/startup/report steps remain pending.
 - [ ] Verify processing indicator visibility/phase/focus during a delayed localhost fixture upload when the desktop is available; no microphone permission or real API key required. Do not interrupt Roger's active remote-access session.
 - [ ] Agree a persistent signing strategy; no signing identity is currently installed and no certificate/keychain changes have been approved.
 - [ ] Update README to describe completed changes only after implementation and validation.
