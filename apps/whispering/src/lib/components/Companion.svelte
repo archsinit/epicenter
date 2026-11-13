@@ -103,25 +103,25 @@
 	data-renderer={ready ? 'webgl' : 'fallback'}
 	data-motion={reduced ? 'reduced' : 'full'}
 >
-	<canvas
-		bind:this={canvas}
-		class:ready
+	<div
 		role="img"
 		aria-label={ready
 			? 'Gastly with evolving smoke'
 			: 'Gastly fallback graphic'}
-	></canvas>
-	{#if !ready}
-		<div class="fallback" aria-hidden="true">
-			{#each Array(12) as _, index}
-				<span style:--i={index}></span>
-			{/each}
-			{#if mode === 'idle' || mode === 'error'}<img
-					src="/companion/idle-head.png"
-					alt=""
-				/>{/if}
-		</div>
-	{/if}
+	>
+		<canvas bind:this={canvas} class:ready aria-hidden="true"></canvas>
+		{#if !ready}
+			<div class="fallback" aria-hidden="true">
+				{#each Array(12) as _, index}
+					<span style:--i={index}></span>
+				{/each}
+				{#if mode === 'idle' || mode === 'error'}<img
+						src="/companion/idle-head.png"
+						alt=""
+					/>{/if}
+			</div>
+		{/if}
+	</div>
 	<div class="waveform" class:visible={mode === 'wave'} aria-hidden="true">
 		{#each levels as level, index (index)}
 			<span style:height="{1 + Math.max(0, Math.min(1, level)) * 23}px"></span>
