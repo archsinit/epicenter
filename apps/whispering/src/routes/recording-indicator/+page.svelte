@@ -15,6 +15,7 @@
 		level: number | null;
 		inputActive: boolean;
 		gaze?: number[];
+		returning?: boolean;
 	};
 	let snapshot = $state<Snapshot>({
 		phase: 'idle',
@@ -110,6 +111,7 @@
 		{label}
 		{disconnected}
 		gaze={snapshot.gaze}
+		returning={snapshot.returning}
 		warning={dragFailed ||
 			(recording && (snapshot.level === null || !snapshot.inputActive))}
 		onDrag={startDrag}

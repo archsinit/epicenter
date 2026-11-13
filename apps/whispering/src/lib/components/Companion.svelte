@@ -21,6 +21,7 @@
 		disconnected = false,
 		gaze = [0, 0],
 		warning = false,
+		returning = false,
 		onDrag,
 	}: {
 		phase: Phase;
@@ -29,6 +30,7 @@
 		disconnected?: boolean;
 		gaze?: number[];
 		warning?: boolean;
+		returning?: boolean;
 		onDrag?: () => void;
 	} = $props();
 	const mode = $derived(
@@ -36,9 +38,11 @@
 			? 'error'
 			: phase === 'recording'
 				? 'wave'
-				: phase === 'transcribing' || phase === 'cleaning'
-					? 'vortex'
-					: 'idle',
+				: returning
+					? 'cloud'
+					: phase === 'transcribing' || phase === 'cleaning'
+						? 'vortex'
+						: 'idle',
 	);
 	let canvas: HTMLCanvasElement;
 	let ready = $state(false);
@@ -227,6 +231,10 @@
 		border-radius: 50%;
 		background: #e7b667;
 		box-shadow: 0 0 5px #e7b66760;
+	}
+	.companion[data-mode='wave'] .warning {
+		left: 153px;
+		top: 50px;
 	}
 	.warning.error {
 		background: #fb7185;

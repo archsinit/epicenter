@@ -9,11 +9,13 @@ pub struct Pointer {
     pub x: f64,
     pub y: f64,
     pub scale: f64,
+    pub returning: bool,
 }
 
 extern "C" {
     fn wi_companion_panel_create(window: *mut std::ffi::c_void) -> bool;
     fn wi_companion_panel_show() -> bool;
+    fn wi_companion_panel_recording(recording: bool) -> bool;
     fn wi_companion_panel_pointer(result: *mut Pointer, recording: bool) -> bool;
     fn wi_companion_panel_ignore_mouse(ignore: bool) -> bool;
     fn wi_companion_panel_drag() -> bool;
@@ -50,6 +52,16 @@ pub fn show(window: &WebviewWindow) -> Result<(), String> {
         Ok(())
     } else {
         Err("Companion panel unavailable".into())
+    }
+}
+
+pub fn recording(window: &WebviewWindow, recording: bool) -> Result<(), String> {
+    if on_main(window, move || unsafe {
+        wi_companion_panel_recording(recording)
+    })? {
+        Ok(())
+    } else {
+        Err("Could not update companion travel".into())
     }
 }
 

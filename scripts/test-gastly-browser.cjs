@@ -19,6 +19,12 @@ async function uploadedLevels(page) {
   return Array.from({length:24},(_,i)=>gl.getUniform(program,gl.getUniformLocation(program,`levels[${i}]`)));
  });
 }
+async function formUniforms(page) {
+ return page.locator('.companion canvas').evaluate(c => {
+  const gl=c.getContext('webgl'), program=gl.getParameter(gl.CURRENT_PROGRAM);
+  return Object.fromEntries(['wave','processing','headVisibility','spin'].map(n=>[n,gl.getUniform(program,gl.getUniformLocation(program,n))]));
+ });
+}
 function eyes(rgba, width) {
  let x=0,y=0,count=0;
  for(let py=32;py<74;py++)for(let px=68;px<112;px++) {
@@ -120,8 +126,24 @@ function eyes(rgba, width) {
  assert.equal(edgeAlpha,0,'Every outer pixel must be fully transparent, with no rectangular border');
  await native.evaluate(()=>{window.testSnapshot={phase:'recording',level:0.25,inputActive:true,gaze:[1,-1]}});
  await native.waitForTimeout(450);assert((await uploadedLevels(native)).some(v=>v>0));
- await native.evaluate(()=>{window.testSnapshot.phase='transcribing';});await native.waitForTimeout(200);
+ await native.waitForTimeout(750); // Let the recording face fully dissolve.
+ await native.evaluate(()=>{window.testSnapshot.phase='transcribing';window.testSnapshot.returning=true;});
+ await native.waitForTimeout(650);
+ assert.equal(await native.locator('.companion').getAttribute('data-mode'),'cloud','Return trip must spread gas before processing');
+ const travelling=await formUniforms(native);
+ assert(travelling.wave<0.08 && travelling.processing===0 && travelling.headVisibility<0.01,'Return trip has expanded gas, no swirl and no returning face');
+ await native.waitForTimeout(150);
+ assert.equal((await formUniforms(native)).spin,travelling.spin,'Processing spin stays stopped during return');
  assert((await uploadedLevels(native)).some(v=>v>0),'Keep the last real ribbon shape through the morph');
+ await native.evaluate(()=>{window.testSnapshot.returning=false;});await native.waitForTimeout(400);
+ assert.equal(await native.locator('.companion').getAttribute('data-mode'),'vortex');
+ assert((await formUniforms(native)).processing>0.5,'Swirl starts only after arrival');
+ await native.evaluate(()=>{window.testSnapshot.phase='idle';window.testSnapshot.returning=true;});await native.waitForTimeout(900);
+ assert.equal(await native.locator('.companion').getAttribute('data-mode'),'cloud','A finished job still waits for home without inventing processing');
+ assert((await formUniforms(native)).headVisibility<0.01);
+ await native.evaluate(()=>{window.testSnapshot.returning=false;});await native.waitForTimeout(600);
+ assert.equal(await native.locator('.companion').getAttribute('data-mode'),'idle');
+ assert((await formUniforms(native)).headVisibility>0.9);
  await native.evaluate(()=>{window.testSnapshot.phase='recording';});await native.waitForTimeout(450);
  await native.emulateMedia({reducedMotion:'reduce'});
  await native.evaluate(()=>{window.testSnapshot.level=0.01;});await native.waitForTimeout(450);

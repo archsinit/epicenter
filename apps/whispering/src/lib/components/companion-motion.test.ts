@@ -74,6 +74,33 @@ test('recording-to-processing keeps one continuous gas form without a face flash
 	}
 });
 
+test('return travel expands the waveform into gas without a face or processing spin', () => {
+	let state = { wave: 1, processing: 0, head: 0, spin: 2 };
+	for (let i = 0; i < 15; i++) {
+		state = advanceFormMotion(state, 'cloud', 40, false);
+		expect(state.head).toBe(0);
+		expect(state.processing).toBe(0);
+		expect(state.spin).toBe(2);
+	}
+	expect(state.wave).toBeLessThan(0.05);
+	// A short take may interrupt an older processing morph; hold even its residual spin.
+	expect(advanceFormMotion({ ...state, processing: 0.5 }, 'cloud', 40, false).spin).toBe(state.spin);
+	const arrived = advanceFormMotion(state, 'vortex', 40, false);
+	expect(arrived.processing).toBeGreaterThan(0);
+	expect(arrived.head).toBe(0);
+});
+
+test('a job finishing during return reveals the face only after arrival, without fake processing', () => {
+	let state = { wave: 1, processing: 0, head: 0, spin: 0 };
+	for (let i = 0; i < 20; i++) state = advanceFormMotion(state, 'cloud', 40, false);
+	expect(state.head).toBe(0);
+	const arrived = advanceFormMotion(state, 'idle', 40, false);
+	expect(arrived.head).toBeGreaterThan(0);
+	expect(arrived.processing).toBe(0);
+	expect(arrived.spin).toBe(0);
+	expect(advanceFormMotion(initialFormMotion(), 'cloud', 40, true)).toEqual({ wave: 0, processing: 0, head: 0, spin: 0 });
+});
+
 test('reduced motion changes form immediately without spinning', () => {
 	const process = advanceFormMotion(initialFormMotion(), 'vortex', 40, true);
 	expect(process).toEqual({ wave: 0, processing: 1, head: 0, spin: 0 });

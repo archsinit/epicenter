@@ -38,7 +38,7 @@ export function initialFormMotion(): FormMotion {
 
 /** Preserve the entering morph, but settle the swirl before revealing a returning face. */
 export function advanceFormMotion(
-	previous: FormMotion, mode: 'idle' | 'wave' | 'vortex' | 'error',
+	previous: FormMotion, mode: 'idle' | 'wave' | 'cloud' | 'vortex' | 'error',
 	milliseconds: number, reduced: boolean,
 ): FormMotion {
 	const dt = Number.isFinite(milliseconds) ? Math.max(0, Math.min(100, milliseconds)) : 0;
@@ -50,7 +50,7 @@ export function advanceFormMotion(
 	const t = Math.max(0, Math.min(1, (processing - 0.12) / 0.53));
 	const speed = t * t * (3 - 2 * t);
 	// Reverse temporal rotation without mirroring the existing spiral or its emission.
-	const spin = reduced || speed === 0 || dt === 0 ? previous.spin
+	const spin = reduced || mode === 'cloud' || speed === 0 || dt === 0 ? previous.spin
 		: (previous.spin - dt * 0.00052 * speed + Math.PI * 2) % (Math.PI * 2);
 	return { wave, processing, head, spin };
 }

@@ -85,6 +85,7 @@ pub struct Snapshot {
     level: Option<f32>,
     input_active: bool,
     gaze: [f64; 2],
+    returning: bool,
 }
 
 pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
@@ -143,7 +144,10 @@ pub fn set_indicator_state(
         .ok_or("Recording indicator window unavailable")?;
     // Idle is now a persistent companion, not a hidden recording indicator.
     #[cfg(target_os = "macos")]
-    return crate::indicator_panel::show(&window);
+    {
+        crate::indicator_panel::recording(&window, phase == Phase::Recording)?;
+        return crate::indicator_panel::show(&window);
+    }
     #[cfg(not(target_os = "macos"))]
     window.show().map_err(|e| e.to_string())
 }
@@ -159,16 +163,16 @@ pub fn get_indicator_state(
     // No global event hooks: use the pointer position to keep the transparent margins
     // click-through, enabling native primary-button dragging only over the character.
     // Window and pointer coordinates are both physical pixels, including monitor origins.
-    let gaze = app
+    let (gaze, returning) = app
         .get_webview_window("recording-indicator")
         .and_then(|window| {
             #[cfg(target_os = "macos")]
-            let (x, y, scale) = {
+            let (x, y, scale, returning) = {
                 let pointer = crate::indicator_panel::pointer(&window, phase == Phase::Recording)?;
-                (pointer.x, pointer.y, pointer.scale)
+                (pointer.x, pointer.y, pointer.scale, pointer.returning)
             };
             #[cfg(not(target_os = "macos"))]
-            let (x, y, scale) = {
+            let (x, y, scale, returning) = {
                 let cursor = window.cursor_position().ok()?;
                 let origin = window.inner_position().ok()?;
                 let scale = window.scale_factor().ok()?;
@@ -176,20 +180,24 @@ pub fn get_indicator_state(
                     (cursor.x - origin.x as f64) / scale,
                     (cursor.y - origin.y as f64) / scale,
                     scale,
+                    false,
                 )
             };
             update_cursor_mode(&window, !pointer_hits_companion(phase, x, y));
-            Some(gaze_direction(
-                (x - WINDOW_WIDTH / 2.0) * scale,
-                (y - HEAD_CENTER_Y) * scale,
-                scale,
+            Some((
+                gaze_direction(
+                    (x - WINDOW_WIDTH / 2.0) * scale,
+                    (y - HEAD_CENTER_Y) * scale,
+                    scale,
+                ),
+                returning,
             ))
         })
         .unwrap_or_else(|| {
             if let Some(window) = app.get_webview_window("recording-indicator") {
                 update_cursor_mode(&window, true);
             }
-            [0.0, 0.0]
+            ([0.0, 0.0], false)
         });
     Ok(Snapshot {
         phase,
@@ -204,6 +212,7 @@ pub fn get_indicator_state(
         },
         input_active,
         gaze,
+        returning,
     })
 }
 

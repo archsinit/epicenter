@@ -4,6 +4,12 @@ Living handoff for Roger's approved design references, implementation and test e
 
 **Current installed runtime: 02a721b** (reversed processing swirl), installed at Roger's explicit request after CI 43389968995 passed 32 Bun +16 Rust tests, types, Intel build, signature and startup checks (actual report read). Installed executable SHA matches the artifact; prior bundle backed up at the stable fork installation path. Actual Mac AX confirms visible 180×120 companion, WebGL renderer ready, native tray present and Accessory activation. Settings/providers/bindings/permissions/upstream app were not changed. Native visual/performance and drag/focus acceptance remain open; no synthetic input was used for this installation.
 
+## Recording travel revision (source; installation pending)
+
+Roger requested bottom-center recording travel and asked for a checkpoint before changing it. Checkpoint `a63f9ae` is pushed and retains the prior overlay motion while adding GPT-Transcribe without changing selection/defaults; request tests verify plural `languages` only for the new model using SDK 5.23.2 and a synthetic fetch. No real provider call was made.
+
+Travel implementation captures the actual dragged home frame, glides the real NSPanel to its current display's horizontal center with the waveform core 36pt above the usable bottom, then returns to the saved home on recording exit. During return the ribbon expands to gas with no face or processing swirl; swirl begins only after arrival if a real job is still pending. New recordings interrupt return without overwriting home. Automatic travel is click-through and obeys system Reduce Motion. No Dock icon, input-binding, provider, permission or recording/pipeline changes. Local 51 Bun tests, app types, rendered browser sequencing and a hidden native AppKit host test pass. See `apps/whispering/specs/20261113T084500-recording-travel.md`. Native visual/packaged focus acceptance remains unverified; installed runtime above is unchanged until explicitly updated.
+
 ## For the design session to complete
 
 ### Approved visual direction from Roger's design conversation

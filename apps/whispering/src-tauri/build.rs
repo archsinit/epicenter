@@ -34,6 +34,7 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", out.display());
         println!("cargo:rustc-link-lib=static=whispering_indicator_panel");
         println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=QuartzCore");
     }
     tauri_build::build()
 }

@@ -47,6 +47,13 @@ jobs:
         run: bun run --cwd apps/whispering check
       - name: Test fork indicator, cleanup and input policies
         run: bun test scripts/no-telemetry.test.ts scripts/menu-bar.test.ts apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts apps/whispering/src/lib/components/companion-motion.test.ts apps/whispering/src/lib/services/transcription/cloud/openai-request.test.ts
+      - name: Test hidden native companion travel
+        run: |
+          xcrun clang -fobjc-arc -Werror -mmacosx-version-min=10.15 \
+            apps/whispering/src-tauri/src/indicator_panel.m \
+            scripts/integration/gastly-travel-host-test.m \
+            -framework AppKit -framework QuartzCore -o /tmp/gastly-travel-host-test
+          /tmp/gastly-travel-host-test
       - name: Build Intel Mac app
         working-directory: apps/whispering
         env:
