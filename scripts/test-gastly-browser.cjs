@@ -65,10 +65,22 @@ function eyes(rgba, width) {
   for(let i=0;i<100&&!r.draw(f);i++)await new Promise(resolve=>setTimeout(resolve,10));
   const gl=c.getContext('webgl');
   function extent(level){f.levels.fill(level);r.draw(f);const data=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,data);let low=c.height,high=-1;for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++)if(data[(y*c.width+x)*4+3]>12){low=Math.min(low,y);high=Math.max(high,y);}return high-low+1;}
-  const quiet=extent(0),voice=extent(1);r.dispose();return {quiet,voice};
+  const quiet=extent(0),voice=extent(1);
+  function read(){const a=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,a);return a;}
+  const scale=c.width/180,cx=c.width/2,cy=c.height*0.5625;
+  function radii(){const a=read();return Array.from({length:8},(_,i)=>{let edge=18;const angle=i*Math.PI/4;for(let r=19;r<82;r++){const x=Math.floor(cx+Math.cos(angle)*r*scale),y=Math.floor(cy+Math.sin(angle)*r*scale);if(x>=0&&y>=0&&x<c.width&&y<c.height&&a[(y*c.width+x)*4+3]>8)edge=r;}return edge;});}
+  f.wave=0;f.head=1;f.levels.fill(0);const shapes=[];
+  for(const t of [2,7,12]){f.time=t;r.draw(f);shapes.push(radii());}
+  function centroid(){const a=read();let weighted=0,total=0;for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){if(Math.hypot(x-cx,y-cy)<21*scale)continue;const opacity=a[(y*c.width+x)*4+3];weighted+=x*opacity;total+=opacity;}return weighted/total/scale;}
+  f.time=4.5;f.emitter=[0.04,0,0,0];r.draw(f);const current=centroid();f.emitter=[0.04,0,-0.08,0.02];r.draw(f);const trailing=centroid();
+  r.dispose();return {quiet,voice,shapes,current,trailing};
  });
  assert(gasShapes.quiet>0 && gasShapes.voice>gasShapes.quiet*2,`Real amplitudes must change GAS thickness: ${JSON.stringify(gasShapes)}`);
- console.log('Rendered gas waveform heights (quiet/voice):',gasShapes);
+ assert(gasShapes.shapes.some(a=>Math.max(...a)-Math.min(...a)>8),'Cloud outline must have uneven long/short plumes');
+ const directionalChanges=gasShapes.shapes.slice(1).map((a,i)=>a.map((r,j)=>r-gasShapes.shapes[i][j]));
+ assert(directionalChanges.some(a=>Math.max(...a)>3&&Math.min(...a)<-3),'Different directions must expand and contract independently');
+ assert(gasShapes.trailing<gasShapes.current-0.5,'Older outer wisps must lag behind the moving source');
+ console.log('Rendered gas waveform and billow checks:',gasShapes);
  await page.getByRole('button',{name:'transcribing',exact:true}).click();await page.waitForTimeout(1000);
  assert.equal(await page.locator('.companion').getAttribute('data-mode'),'vortex');
  await page.screenshot({path:path.join(artifacts,'processing.png')});

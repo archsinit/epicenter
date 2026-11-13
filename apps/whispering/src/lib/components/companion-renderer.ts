@@ -1,3 +1,5 @@
+import { buildBillows } from '$lib/components/companion-motion';
+
 /** Small, alpha-composited procedural volume. No smoke/vortex image is animated. */
 export const VERTEX_SHADER = `
 attribute vec2 position;
@@ -18,6 +20,8 @@ uniform float failure;
 uniform float headVisibility;
 uniform float spin;
 uniform float levels[24];
+uniform vec4 emitter; // current core xy, delayed outer-wisp offset zw
+uniform vec4 puffs[8]; // soft billow centers, widths and lifetimes
 uniform vec2 resolution;
 uniform sampler2D face;
 
@@ -29,6 +33,19 @@ float waveform(float position) {
         amplitude += levels[i] * max(0.0, 1.0 - abs(index - float(i)));
     }
     return amplitude;
+}
+
+float billows(vec2 point) {
+    float density = exp(-dot(point, point) * 3.4) * 0.85;
+    for (int i = 0; i < 8; i++) {
+        vec4 puff = puffs[i];
+        vec2 axis = puff.xy / max(length(puff.xy), 0.001);
+        vec2 delta = point - puff.xy;
+        vec2 shape = vec2(dot(delta, axis) / max(0.08, puff.z * 1.45),
+                          dot(delta, vec2(-axis.y, axis.x)) / max(0.08, puff.z));
+        density += exp(-dot(shape, shape) * 1.9) * puff.w * 0.85;
+    }
+    return min(1.3, density);
 }
 
 float hash(vec3 p) {
@@ -63,7 +80,15 @@ void main() {
     float headAmount = headVisibility;
     float waveHeight = 0.065 + 0.40 * waveform(p.x / 2.30 + 0.5);
     float swirlMix = smoothstep(0.12, 0.65, processing);
-    vec2 hp = p - vec2(0.0, sin(time * 1.2) * 0.025 * headAmount);
+    vec2 hp = p - emitter.xy;
+    float smokeAge = smoothstep(0.22, 1.0, length(hp) * 1.45);
+    vec2 smokeP = hp - emitter.zw * smokeAge * 2.0;
+    // Soft elliptical viewport budget: large plumes can be long without flat clipping.
+    vec2 screenDirection = hp / max(length(hp), 0.001);
+    float budgetX = 1.43 - sign(screenDirection.x) * emitter.x;
+    float budgetY = screenDirection.y > 0.0 ? 0.805 - emitter.y : 1.055 + emitter.y;
+    vec2 viewportPosition = hp / vec2(budgetX, budgetY);
+    float viewportFade = 1.0 - smoothstep(0.78, 1.0, length(viewportPosition));
     float radius = 0.292;
     float r2 = dot(hp, hp) / (radius * radius);
     float ha = (1.0 - smoothstep(0.88, 1.0, r2)) * headAmount;
@@ -81,6 +106,12 @@ void main() {
     float whites = smoothstep(0.48, 0.85, min(artwork.r, min(artwork.g, artwork.b)));
     head = mix(head, vec3(0.13, 0.085, 0.19), blink * eyeRegion * whites);
 
+    vec2 cloudQ = vec2(smokeP.x * 1.45 / mix(1.0, 1.43, wave), smokeP.y * 1.45 / mix(1.0, waveHeight, wave));
+    float cloudRadius = length(cloudQ);
+    cloudQ = rotation(swirlMix * 2.7 * exp(-cloudRadius * 1.4) - spin) * cloudQ;
+    // Soft overlapping volumes create rounded billows, not angular radial wedges.
+    float puffShape = billows(cloudQ);
+    float cloudShape = puffShape * viewportFade;
     vec3 color = vec3(0.0);
     float alpha = 0.0;
     bool headPlaced = false;
@@ -91,30 +122,26 @@ void main() {
             alpha += (1.0 - alpha) * ha;
             headPlaced = true;
         }
-        vec3 q = vec3(hp.x * 1.45 / mix(1.0, 1.43, wave), hp.y * 1.45 / mix(1.0, waveHeight, wave), z);
-        float r = length(q.xy);
-        // Integrated spin stops before the face returns; no absolute-time unwinding.
-        q.xy = rotation(swirlMix * (2.7 * exp(-r * 1.4) + z * 0.5) - spin) * q.xy;
-        // Retarded radial transport: newly emitted density travels OUT from the
-        // face's rim / waveform core, then fades. Angular coordinates are periodic.
-        float travel = max(0.0, r - headAmount * 0.38);
-        vec2 direction = q.xy / max(r, 0.001);
-        vec3 field = vec3(direction * (0.2 + 2.6 * smoothstep(0.0, 0.34, travel)),
-                          travel * 4.2 - time * 0.85 + z * 1.6);
-        vec3 advect = vec3(0.0, 0.0, time * 0.045);
+        vec3 q = vec3(rotation(swirlMix * z * 0.5) * cloudQ, z);
+        float r = cloudRadius;
+        // Billow lifetimes carry gas outward. Cartesian internal turbulence avoids
+        // the concentric pond-ripple appearance of a radial noise coordinate.
+        vec3 field = vec3(q.xy * 3.8, z * 2.6);
+        vec3 advect = vec3(sin(time * 0.16) * 0.35, cos(time * 0.11) * 0.35, -time * 0.24);
         vec3 warp = vec3(
             noise(field * 0.64 + advect),
             noise(field * 0.71 - advect.yzx + 7.3),
             noise(field * 0.59 + advect.zxy + 12.1));
         float n = fbm(field + (warp - 0.5) * 2.4 + advect);
         float fine = noise(field * 3.1 - advect * 1.7);
-        float edge = 1.0 - smoothstep(0.72, 1.17, r + (warp.x - 0.5) * 0.25);
-        float volume = exp(-dot(q * vec3(0.86, 0.86, 1.0), q * vec3(0.86, 0.86, 1.0)) * 1.65);
-        float density = smoothstep(0.25, 0.65, n + fine * 0.13) * edge * volume * mix(0.48, 0.66, wave);
+        float waveEdge = 1.0 - smoothstep(0.72, 1.17, r + (warp.x - 0.5) * 0.25);
+        float waveShape = waveEdge * exp(-dot(q.xy * 0.86, q.xy * 0.86) * 1.65) * (0.75 + 0.25 * min(1.0, puffShape));
+        float volume = mix(cloudShape, waveShape, wave) * exp(-z * z * 1.65);
+        float density = smoothstep(0.25, 0.65, n + fine * 0.13) * volume * mix(0.48, 0.66, wave);
         // A soft vortex hollow; turbulence is still visible inside and across its rim.
         density *= mix(1.0, smoothstep(0.08, 0.42, r), processing * 0.88);
         // Clear facial features without cutting a hole through the background gas.
-        if (z > hz) density *= mix(0.16, 1.0, smoothstep(0.24, 0.48, length(hp)) * headAmount + (1.0 - headAmount));
+        if (z > hz) density *= mix(1.0, 0.16, ha);
         float filament = pow(max(0.0, 1.0 - abs(n - 0.53) * 5.0), 3.0);
         vec3 violet = mix(vec3(0.22, 0.035, 0.39), vec3(0.65, 0.32, 0.88), n);
         violet = mix(violet, vec3(0.88, 0.67, 1.0), filament * (0.22 + fine * 0.25));
@@ -141,6 +168,7 @@ export type CompanionFrame = {
 	head: number;
 	spin: number;
 	levels: number[];
+	emitter?: readonly [number, number, number, number];
 };
 
 export function createCompanionRenderer(canvas: HTMLCanvasElement) {
@@ -193,6 +221,9 @@ export function createCompanionRenderer(canvas: HTMLCanvasElement) {
 	const uniforms = Object.fromEntries(scalarNames.map(name => [name, gl.getUniformLocation(program, name)]));
 	const head = gl.getUniformLocation(program, 'headVisibility');
 	const levels = gl.getUniformLocation(program, 'levels[0]');
+	const emitter = gl.getUniformLocation(program, 'emitter');
+	const puffs = gl.getUniformLocation(program, 'puffs[0]');
+	const puffData = new Float32Array(32);
 	const samples = new Float32Array(24);
 	const resolution = gl.getUniformLocation(program, 'resolution');
 	gl.uniform1i(gl.getUniformLocation(program, 'face'), 0);
@@ -209,6 +240,8 @@ export function createCompanionRenderer(canvas: HTMLCanvasElement) {
 				samples[i] = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 			}
 			gl.uniform1fv(levels, samples);
+			gl.uniform4fv(puffs, buildBillows(frame.time, puffData));
+			gl.uniform4f(emitter, frame.emitter?.[0] ?? 0, frame.emitter?.[1] ?? 0, frame.emitter?.[2] ?? 0, frame.emitter?.[3] ?? 0);
 			gl.uniform2f(resolution, canvas.width, canvas.height);
 			gl.drawArrays(gl.TRIANGLES, 0, 6);
 			return true;

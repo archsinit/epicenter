@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { advanceFormMotion, gazeAxis, initialFormMotion, waveformLevel } from './companion-motion';
+import { advanceFormMotion, buildBillows, gazeAxis, initialFormMotion, waveformLevel } from './companion-motion';
 
 test('only fresh real samples produce a waveform', () => {
 	expect(waveformLevel(0.0625, true)).toBe(0.5);
@@ -13,6 +13,21 @@ test('invalid sample amplitudes cannot generate CSS heights', () => {
 	for (const level of [NaN, Infinity, -Infinity, -1]) {
 		expect(waveformLevel(level, true)).toBe(0);
 	}
+});
+
+test('billows grow outward independently with finite soft lifetimes', () => {
+	const early = buildBillows(1), later = buildBillows(3);
+	expect(Math.hypot(later[0] ?? 0, later[1] ?? 0)).toBeGreaterThan(Math.hypot(early[0] ?? 0, early[1] ?? 0));
+	for (let i = 0; i < 8; i++) {
+		expect(Number.isFinite(later[i * 4])).toBe(true);
+		expect(Number.isFinite(later[i * 4 + 1])).toBe(true);
+		expect(later[i * 4 + 2] ?? 0).toBeGreaterThan(0.1);
+		expect(later[i * 4 + 3] ?? -1).toBeGreaterThanOrEqual(0);
+		expect(later[i * 4 + 3] ?? 2).toBeLessThanOrEqual(1);
+	}
+	expect(later).not.toEqual(early);
+	expect(buildBillows(3)).toEqual(later);
+	expect(buildBillows(NaN)).toEqual(buildBillows(0));
 });
 
 test('entering processing retains a gradual face-to-gas morph', () => {

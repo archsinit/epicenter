@@ -10,6 +10,27 @@ export function gazeAxis(value: number | undefined): number {
 		? Math.max(-1, Math.min(1, value)) : 0;
 }
 
+/** Independently born billows: slow outward growth, uneven directions and small flutter. */
+export function buildBillows(seconds: number, target = new Float32Array(32)): Float32Array {
+	const time = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+	const random = (seed: number) => { const n = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); };
+	const smooth = (n: number) => { const t = Math.max(0, Math.min(1, n)); return t * t * (3 - 2 * t); };
+	for (let i = 0; i < 8; i++) {
+		const cycle = time * (0.10 + random(i + 1) * 0.045) + i / 8;
+		const age = cycle - Math.floor(cycle);
+		const seed = i + Math.floor(cycle) * 7.13;
+		const angle = random(seed + 2.7) * Math.PI * 2;
+		const distance = 0.08 + age * 0.96;
+		const curl = Math.sin(age * 4.2 + random(seed + 4) * Math.PI * 2) * age * 0.15;
+		const width = (0.20 + age * 0.26) * (1 + Math.sin(time * (2.2 + i * 0.31) + i) * 0.10);
+		target[i * 4] = Math.cos(angle) * distance - Math.sin(angle) * curl;
+		target[i * 4 + 1] = Math.sin(angle) * distance + Math.cos(angle) * curl;
+		target[i * 4 + 2] = width;
+		target[i * 4 + 3] = smooth(age / 0.12) * (1 - smooth((age - 0.64) / 0.36));
+	}
+	return target;
+}
+
 export type FormMotion = { wave: number; processing: number; head: number; spin: number };
 export function initialFormMotion(): FormMotion {
 	return { wave: 0, processing: 0, head: 1, spin: 0 };

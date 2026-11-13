@@ -60,6 +60,8 @@
 		let yaw = 0,
 			pitch = 0;
 		let previousSignature = '';
+		let lagX = 0,
+			lagY = 0;
 		function animate(now: number) {
 			frame = requestAnimationFrame(animate);
 			if (document.hidden || now - previous < 1000 / 24) return;
@@ -71,12 +73,19 @@
 			yaw += ((reduced ? 0 : gazeAxis(gaze[0]) * 0.65) - yaw) * blend;
 			pitch += ((reduced ? 0 : gazeAxis(gaze[1]) * 0.45) - pitch) * blend;
 			const time = reduced ? 0 : (now - start) / 1000;
+			const sourceX = (reduced ? 0 : yaw * 0.075) * motion.head;
+			const sourceY =
+				(reduced ? 0 : -pitch * 0.065 + Math.sin(time * 1.2) * 0.03) *
+				motion.head;
+			const trailBlend = reduced ? 1 : 1 - Math.exp(-dt / 850);
+			lagX += (sourceX - lagX) * trailBlend;
+			lagY += (sourceY - lagY) * trailBlend;
 			const cycle = time % 7.8;
 			const blink =
 				!reduced && cycle > 4.2 && cycle < 4.42
 					? Math.sin(((cycle - 4.2) / 0.22) * Math.PI)
 					: 0;
-			const signature = `${mode}:${warning}:${disconnected}:${mode === 'wave' ? levels.join(',') : ''}`;
+			const signature = `${mode}:${reduced}:${warning}:${disconnected}:${mode === 'wave' ? levels.join(',') : ''}`;
 			if (reduced && ready && signature === previousSignature) return;
 			ready =
 				renderer?.draw({
@@ -86,6 +95,7 @@
 					head: motion.head,
 					spin: motion.spin,
 					levels,
+					emitter: [sourceX, sourceY, lagX - sourceX, lagY - sourceY],
 					yaw,
 					pitch,
 					blink,
