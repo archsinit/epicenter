@@ -41,6 +41,12 @@ fn poisoned() -> io::Error {
     io::Error::other("Capture state unavailable; no new recording was started")
 }
 impl MeetingController {
+    pub fn awaiting_restore() -> Self {
+        Self {
+            gate: Mutex::new(CaptureGate::awaiting_restore()),
+            ..Self::default()
+        }
+    }
     pub fn spawn_ffmpeg(&self, command: &mut Command) -> io::Result<CaptureProcessInfo> {
         let mut gate = self.capture_gate()?;
         gate.ensure_ffmpeg_allowed()?;

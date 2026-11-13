@@ -28,6 +28,7 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'capture_ffmpeg_spawn',
 			'capture_ffmpeg_stop',
 			'capture_ffmpeg_restore',
+			'capture_restore_ready',
 			'meeting_sources',
 			'meeting_request_permission',
 			'meeting_start',
@@ -40,6 +41,18 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			expect(app).toContain(`meeting_commands::${name},`);
 		}
 		expect(commands).toContain('window.label() != "main"');
+	});
+	test('startup fence is acknowledged only after saved-session inspection', () => {
+		expect(commands).toContain('MeetingController::awaiting_restore()');
+		expect(command('capture_restore_ready')).toContain('finish_startup_restore()');
+		expect(ffmpegClient).toContain('createCaptureStartup({');
+		expect(ffmpegClient).toContain("await invoke<void>('capture_restore_ready')");
+		expect(ffmpegClient).toContain('invalidSavedSession');
+		const streams = readFileSync(new URL('../device-stream.ts', clientRoot), 'utf8');
+		expect(streams.match(/await waitForCaptureStartup\(\)/g)?.length).toBe(2);
+		expect(cpalClient.indexOf('await waitForCaptureStartup()')).toBeLessThan(
+			cpalClient.indexOf('const { data: devices, error: enumerateError }'),
+		);
 	});
 	test('Quit interception covers ExitRequested rather than only tray actions', () => {
 		expect(app).toContain('RunEvent::ExitRequested { api, .. }');

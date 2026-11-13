@@ -15,11 +15,24 @@ use std::time::Duration;
 use tauri::{Manager, State, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct MeetingAppState {
     pub controller: Arc<MeetingController>,
     exit_task: Arc<AtomicBool>,
     exit_approved: Arc<AtomicBool>,
+}
+impl Default for MeetingAppState {
+    fn default() -> Self {
+        #[cfg(target_os = "macos")]
+        let controller = MeetingController::awaiting_restore();
+        #[cfg(not(target_os = "macos"))]
+        let controller = MeetingController::default();
+        Self {
+            controller: Arc::new(controller),
+            exit_task: Arc::new(AtomicBool::new(false)),
+            exit_approved: Arc::new(AtomicBool::new(false)),
+        }
+    }
 }
 #[derive(Debug, Serialize)]
 #[serde(tag = "name")]
@@ -57,6 +70,18 @@ fn unsupported<T>() -> io::Result<T> {
     Err(io::Error::other(
         "Meeting capture requires macOS 14 or newer",
     ))
+}
+
+/// Called only after the main webview has awaited saved-session inspection.
+/// Cleanup/restore commands deliberately remain usable while admission is shut.
+#[tauri::command]
+pub async fn capture_restore_ready(
+    window: WebviewWindow,
+    state: State<'_, MeetingAppState>,
+) -> Result<()> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || controller.capture_gate()?.finish_startup_restore()).await
 }
 
 #[tauri::command]

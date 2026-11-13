@@ -101,6 +101,31 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+#[test]
+fn startup_restore_blocks_worker_and_process_creation_but_not_status_or_quit() {
+    let controller = MeetingController::awaiting_restore();
+    assert!(controller.status().unwrap().is_none());
+    let root = std::env::temp_dir().join(format!(
+        "meeting-startup-pending-{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = controller.start(
+        root.clone(),
+        Fixture::manifest(),
+        |_| -> io::Result<Backend> {
+            panic!("No backend may be constructed before startup restoration");
+        },
+    );
+    assert!(result.is_err());
+    assert!(!root.exists());
+    let mut command = Command::new("/not-a-real-capture-program");
+    let error = controller.spawn_ffmpeg(&mut command).unwrap_err();
+    assert!(error.to_string().contains("startup restoration"));
+    assert!(controller.ffmpeg_id().unwrap().is_none());
+    assert_eq!(controller.request_exit().unwrap(), ExitDecision::Allow);
+}
+
 fn wait_for(mut ready: impl FnMut() -> bool) {
     let until = Instant::now() + Duration::from_secs(5);
     while !ready() {

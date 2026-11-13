@@ -27,6 +27,7 @@ import type {
 } from './types';
 import { RecorderServiceErr } from './types';
 import { createOwnedRecordingProcessClient } from './owned-process';
+import { createCaptureStartup } from '../capture-startup';
 
 /**
  * Desktop platforms supported by FFmpeg recording.
@@ -199,12 +200,19 @@ export const FFMPEG_DEFAULT_DEVICE_IDENTIFIER = asDeviceIdentifier(
 	)[DESKTOP_PLATFORM],
 );
 
-export function createFfmpegRecorderService(): RecorderService {
+export function createFfmpegRecorderService(): RecorderService & {
+	waitForStartup(): Promise<Result<void, RecorderServiceError>>;
+} {
+	// Retain malformed saved data instead of treating it as proof of no process.
+	let invalidSavedSession = false;
 	// Persisted state - single source of truth
 	const sessionState = createPersistedState({
 		key: 'whispering-ffmpeg-recording-session',
 		schema: FfmpegSession,
-		onParseError: () => null,
+		onParseError: (error) => {
+			if (error.type !== 'storage_empty') invalidSavedSession = true;
+			return null;
+		},
 	});
 
 	// Helper to get current Child instance lazily from PID
@@ -256,21 +264,35 @@ export function createFfmpegRecorderService(): RecorderService {
 
 	// A saved PID alone is never a reason to signal a process. Restore native
 	// ownership or a durable confirmed-exit receipt; otherwise preserve state.
-	const initialized = (async (): Promise<
-		Result<void, RecorderServiceError>
-	> => {
-		const previous = sessionState.value;
-		if (!previous) return Ok(undefined);
-		if (DESKTOP_PLATFORM !== 'macos') return clearSession();
-		const restored = await ownedProcess.restore(previous.captureId);
-		if (restored.error) return Err(restored.error);
-		if (!restored.data.running) sessionState.value = null;
-		return Ok(undefined);
-	})();
+	const initialized = createCaptureStartup({
+		restore: async () => {
+			if (DESKTOP_PLATFORM === 'macos' && invalidSavedSession) {
+				// Native quarantine only: never signal a guessed PID or overwrite
+				// the malformed localStorage record with a misleading null.
+				await ownedProcess.restore(undefined);
+				return RecorderServiceErr({
+					message: 'Saved FFmpeg session metadata could not be read. Capture is blocked and existing audio/metadata were retained for recovery.',
+				});
+			}
+			const previous = sessionState.value;
+			if (!previous) return Ok(undefined);
+			if (DESKTOP_PLATFORM !== 'macos') return clearSession();
+			const restored = await ownedProcess.restore(previous.captureId);
+			if (restored.error) return Err(restored.error);
+			if (!restored.data.running) sessionState.value = null;
+			return Ok(undefined);
+		},
+		confirm: async () => {
+			if (DESKTOP_PLATFORM === 'macos')
+				await invoke<void>('capture_restore_ready');
+		},
+	}).wait();
 
 	const enumerateDevices = async (): Promise<
 		Result<Device[], RecorderServiceError>
 	> => {
+		const ready = await initialized;
+		if (ready.error) return Err(ready.error);
 		// Build platform-specific commands
 		const command = asShellCommand(FFMPEG_ENUMERATE_DEVICES_COMMAND);
 
@@ -297,6 +319,7 @@ export function createFfmpegRecorderService(): RecorderService {
 	};
 
 	return {
+		waitForStartup: () => initialized,
 		getRecorderState: async (): Promise<
 			Result<WhisperingRecordingState, RecorderServiceError>
 		> => {

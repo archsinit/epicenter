@@ -8,6 +8,7 @@ import type {
 	UpdateStatusMessageFn,
 } from './types';
 import { asDeviceIdentifier } from './types';
+import { waitForCaptureStartup } from './capture-startup-live';
 
 const { DeviceStreamServiceError, DeviceStreamServiceErr } = createTaggedError(
 	'DeviceStreamServiceError',
@@ -45,6 +46,8 @@ async function hasExistingAudioPermission(): Promise<boolean> {
 export async function enumerateDevices(): Promise<
 	Result<Device[], DeviceStreamServiceError>
 > {
+	const ready = await waitForCaptureStartup();
+	if (ready.error) return DeviceStreamServiceErr({ message: ready.error.message });
 	const hasPermission = await hasExistingAudioPermission();
 	if (!hasPermission) {
 		// extension.openWhisperingTab({});
@@ -84,6 +87,8 @@ export async function enumerateDevices(): Promise<
 async function getStreamForDeviceIdentifier(
 	deviceIdentifier: DeviceIdentifier,
 ) {
+	const ready = await waitForCaptureStartup();
+	if (ready.error) return DeviceStreamServiceErr({ message: ready.error.message });
 	const hasPermission = await hasExistingAudioPermission();
 	if (!hasPermission) {
 		// extension.openWhisperingTab({});

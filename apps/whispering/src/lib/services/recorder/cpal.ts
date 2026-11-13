@@ -7,6 +7,7 @@ import type {
 	WhisperingRecordingState,
 } from '$lib/constants/audio';
 import { FsServiceLive } from '../fs';
+import { waitForCaptureStartup } from '../capture-startup-live';
 import type { Device, DeviceAcquisitionOutcome } from '../types';
 import { asDeviceIdentifier } from '../types';
 import type {
@@ -108,6 +109,8 @@ export function createCpalRecorderService(): RecorderService {
 			}: CpalRecordingParams,
 			{ sendStatus },
 		): Promise<Result<DeviceAcquisitionOutcome, RecorderServiceError>> => {
+			const ready = await waitForCaptureStartup();
+			if (ready.error) return Err(ready.error);
 			const { data: devices, error: enumerateError } = await enumerateDevices();
 			if (enumerateError) return Err(enumerateError);
 
