@@ -229,8 +229,22 @@ mod tests {
     }
     #[test]
     fn unresponsive_owned_child_is_reaped_after_force_stop() {
-        let mut process = sleeper();
-        signal(process.child.id(), "-STOP").unwrap();
+        use std::io::{BufRead, BufReader};
+        use std::process::Stdio;
+        // SIGSTOP + SIGINT did not reliably require force on Intel macOS.
+        // Explicitly ignore INT and acknowledge the installed disposition
+        // before signalling. exec preserves SIG_IGN and keeps the owned PID.
+        let mut process = OwnedCaptureProcess::spawn(
+            Command::new("/bin/sh")
+                .args(["-c", "trap '' INT; printf 'ready\\n'; exec /bin/sleep 30"])
+                .stdout(Stdio::piped()),
+        )
+        .unwrap();
+        let mut line = String::new();
+        BufReader::new(process.child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(line, "ready\n");
         let after = stop(&mut process);
         assert!(!after.running);
         assert!(after.forced);
