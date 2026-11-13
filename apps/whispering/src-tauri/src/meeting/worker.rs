@@ -86,6 +86,17 @@ enum Command {
 }
 type SharedProgress = Arc<Mutex<MeetingProgress>>;
 
+#[derive(Clone)]
+pub struct MeetingProgressReader(SharedProgress);
+impl MeetingProgressReader {
+    pub fn read(&self) -> io::Result<MeetingProgress> {
+        self.0
+            .lock()
+            .map(|state| state.clone())
+            .map_err(|_| io::Error::other("Meeting worker state unavailable"))
+    }
+}
+
 /// Own this in application state, not a page component. Dropping it stops and
 /// joins the actor; closing/hiding a window must not drop application state.
 pub struct MeetingWorker {
@@ -158,6 +169,15 @@ impl MeetingWorker {
             thread: Some(thread),
         })
     }
+    pub fn reader(&self) -> MeetingProgressReader {
+        MeetingProgressReader(self.progress.clone())
+    }
+    pub fn is_finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(|thread| thread.is_finished())
+    }
+
     pub fn progress(&self) -> io::Result<MeetingProgress> {
         self.progress
             .lock()

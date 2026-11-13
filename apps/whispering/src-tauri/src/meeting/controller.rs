@@ -1,0 +1,222 @@
+//! Application-lifetime owner of a meeting worker. Lock order for short
+//! operations is gate -> slot. Joining a worker happens with neither lock held,
+//! so status remains readable and new capture is rejected during finalization.
+
+use super::control::CaptureGate;
+use super::storage::MeetingManifest;
+use super::worker::{
+    MeetingBackend, MeetingPhase, MeetingProgress, MeetingProgressReader, MeetingWorker,
+};
+use std::io;
+use std::path::PathBuf;
+use std::sync::{Condvar, Mutex, MutexGuard};
+
+#[derive(Default)]
+struct Slot {
+    worker: Option<MeetingWorker>,
+    reader: Option<MeetingProgressReader>,
+    last: Option<MeetingProgress>,
+    failure: Option<String>,
+    finishing: bool,
+    exit_pending: bool,
+    exit_ready: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExitDecision {
+    Allow,
+    Finalize,
+    Wait,
+}
+#[derive(Default)]
+pub struct MeetingController {
+    gate: Mutex<CaptureGate>,
+    slot: Mutex<Slot>,
+    finalized: Condvar,
+}
+fn poisoned() -> io::Error {
+    io::Error::other("Capture state unavailable; no new recording was started")
+}
+impl MeetingController {
+    pub fn capture_gate(&self) -> io::Result<MutexGuard<'_, CaptureGate>> {
+        self.gate.lock().map_err(|_| poisoned())
+    }
+    fn record_finish(
+        gate: &mut CaptureGate,
+        slot: &mut Slot,
+        outcome: io::Result<MeetingProgress>,
+    ) -> io::Result<Option<MeetingProgress>> {
+        let previous = slot.reader.as_ref().and_then(|reader| reader.read().ok());
+        slot.reader = None;
+        match outcome {
+            Ok(progress) => {
+                slot.last = Some(progress.clone());
+                slot.failure = None;
+                gate.end_meeting();
+                Ok(Some(progress))
+            }
+            Err(error) => {
+                slot.last = previous.map(|mut progress| {
+                    progress.phase = MeetingPhase::Failed;
+                    progress.error = Some(error.to_string());
+                    progress
+                });
+                slot.failure = Some(error.to_string());
+                // A panicked/unknown worker must not silently free capture
+                // ownership. Local files remain available after an app restart.
+                Err(error)
+            }
+        }
+    }
+    fn reap(gate: &mut CaptureGate, slot: &mut Slot) {
+        if slot
+            .worker
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
+            let mut worker = slot.worker.take().unwrap();
+            let _ = Self::record_finish(gate, slot, worker.finish());
+        }
+    }
+    fn snapshot(slot: &Slot) -> io::Result<Option<MeetingProgress>> {
+        if let Some(reader) = &slot.reader {
+            return reader.read().map(Some);
+        }
+        Ok(slot.last.clone())
+    }
+    pub fn start<B: MeetingBackend, F>(
+        &self,
+        root: PathBuf,
+        manifest: MeetingManifest,
+        factory: F,
+    ) -> io::Result<MeetingProgress>
+    where
+        F: FnOnce(&MeetingManifest) -> io::Result<B> + Send + 'static,
+    {
+        let mut gate = self.capture_gate()?;
+        let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+        Self::reap(&mut gate, &mut slot);
+        if let Some(failure) = &slot.failure {
+            return Err(io::Error::other(failure.clone()));
+        }
+        if slot.finishing || slot.worker.is_some() {
+            return Err(io::Error::other(
+                "A meeting is already active or finalizing",
+            ));
+        }
+        gate.begin_meeting()?;
+        let worker = match MeetingWorker::spawn(root, manifest, factory) {
+            Ok(worker) => worker,
+            Err(error) => {
+                gate.end_meeting();
+                return Err(error);
+            }
+        };
+        let progress = worker.progress()?;
+        slot.reader = Some(worker.reader());
+        slot.worker = Some(worker);
+        slot.last = None;
+        Ok(progress)
+    }
+    pub fn status(&self) -> io::Result<Option<MeetingProgress>> {
+        let mut gate = self.capture_gate()?;
+        let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+        Self::reap(&mut gate, &mut slot);
+        Self::snapshot(&slot)
+    }
+    pub fn capture_now(&self) -> io::Result<()> {
+        let gate = self.capture_gate()?;
+        if gate.is_closing() {
+            return Err(io::Error::other("Application is shutting down"));
+        }
+        let slot = self.slot.lock().map_err(|_| poisoned())?;
+        slot.worker
+            .as_ref()
+            .ok_or_else(|| io::Error::other("No meeting is recording"))?
+            .capture_now()
+    }
+    pub fn pause_screenshots(&self, paused: bool) -> io::Result<()> {
+        let gate = self.capture_gate()?;
+        if gate.is_closing() {
+            return Err(io::Error::other("Application is shutting down"));
+        }
+        let slot = self.slot.lock().map_err(|_| poisoned())?;
+        slot.worker
+            .as_ref()
+            .ok_or_else(|| io::Error::other("No meeting is recording"))?
+            .pause_screenshots(paused)
+    }
+    pub fn request_stop(&self) -> io::Result<Option<MeetingProgress>> {
+        let _gate = self.capture_gate()?;
+        let slot = self.slot.lock().map_err(|_| poisoned())?;
+        if let Some(worker) = &slot.worker {
+            worker.request_stop()?;
+        }
+        Self::snapshot(&slot)
+    }
+    pub fn stop_blocking(&self) -> io::Result<Option<MeetingProgress>> {
+        let mut worker = {
+            let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+            while slot.finishing {
+                slot = self.finalized.wait(slot).map_err(|_| poisoned())?;
+            }
+            if let Some(failure) = &slot.failure {
+                return Err(io::Error::other(failure.clone()));
+            }
+            let Some(worker) = slot.worker.take() else {
+                return Self::snapshot(&slot);
+            };
+            slot.finishing = true;
+            worker
+        };
+        let outcome = worker.finish();
+        let mut gate = match self.capture_gate() {
+            Ok(gate) => gate,
+            Err(error) => {
+                if let Ok(mut slot) = self.slot.lock() {
+                    slot.finishing = false;
+                    slot.failure = Some(error.to_string());
+                }
+                self.finalized.notify_all();
+                return Err(error);
+            }
+        };
+        let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+        slot.finishing = false;
+        let outcome = Self::record_finish(&mut gate, &mut slot, outcome);
+        self.finalized.notify_all();
+        outcome
+    }
+    /// Called for any Quit route (tray, Cmd-Q, plugin exit). It closes admission
+    /// before deciding whether a background finalizer is needed.
+    pub fn request_exit(&self) -> io::Result<ExitDecision> {
+        let mut gate = self.capture_gate()?;
+        let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+        if slot.exit_ready {
+            return Ok(ExitDecision::Allow);
+        }
+        gate.begin_shutdown();
+        Self::reap(&mut gate, &mut slot);
+        if slot.worker.is_none() && !slot.finishing && slot.failure.is_none() {
+            return Ok(ExitDecision::Allow);
+        }
+        if slot.exit_pending {
+            return Ok(ExitDecision::Wait);
+        }
+        slot.exit_pending = true;
+        Ok(ExitDecision::Finalize)
+    }
+    pub fn resolve_exit(&self, quit: bool) -> io::Result<()> {
+        let mut gate = self.capture_gate()?;
+        let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+        slot.exit_pending = false;
+        slot.exit_ready = quit;
+        if !quit {
+            gate.cancel_shutdown();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "controller_tests.rs"]
+mod tests;

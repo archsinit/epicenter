@@ -35,7 +35,10 @@ pub async fn init_recording_session(
     sample_rate: Option<u32>,
     state: State<'_, AppData>,
     _app_handle: tauri::AppHandle,
+    meetings: State<'_, crate::meeting_commands::MeetingAppState>,
 ) -> Result<()> {
+    let mut capture = meetings.controller.capture_gate().map_err(|error| error.to_string())?;
+    capture.ensure_cpal_allowed().map_err(|error| error.to_string())?;
     info!(
         "Initializing recording session: device={}, id={}, folder={}, sample_rate={:?}",
         device_identifier, recording_id, output_folder, sample_rate
@@ -63,11 +66,15 @@ pub async fn init_recording_session(
         .recorder
         .lock()
         .map_err(|e| format!("Failed to lock recorder: {}", e))?;
-    recorder.init_session(device_identifier, recordings_dir, recording_id, sample_rate)
+    let result = recorder.init_session(device_identifier, recordings_dir, recording_id, sample_rate);
+    capture.set_cpal_open(recorder.has_open_session());
+    result
 }
 
 #[tauri::command]
-pub async fn start_recording(state: State<'_, AppData>) -> Result<()> {
+pub async fn start_recording(state: State<'_, AppData>, meetings: State<'_, crate::meeting_commands::MeetingAppState>) -> Result<()> {
+    let capture = meetings.controller.capture_gate().map_err(|error| error.to_string())?;
+    capture.ensure_cpal_allowed().map_err(|error| error.to_string())?;
     info!("Starting recording");
     let mut recorder = state
         .recorder
@@ -87,23 +94,29 @@ pub async fn stop_recording(state: State<'_, AppData>) -> Result<AudioRecording>
 }
 
 #[tauri::command]
-pub async fn cancel_recording(state: State<'_, AppData>) -> Result<()> {
+pub async fn cancel_recording(state: State<'_, AppData>, meetings: State<'_, crate::meeting_commands::MeetingAppState>) -> Result<()> {
+    let mut capture = meetings.controller.capture_gate().map_err(|error| error.to_string())?;
     info!("Cancelling recording");
     let mut recorder = state
         .recorder
         .lock()
         .map_err(|e| format!("Failed to lock recorder: {}", e))?;
-    recorder.cancel_recording()
+    let result = recorder.cancel_recording();
+    capture.set_cpal_open(recorder.has_open_session());
+    result
 }
 
 #[tauri::command]
-pub async fn close_recording_session(state: State<'_, AppData>) -> Result<()> {
+pub async fn close_recording_session(state: State<'_, AppData>, meetings: State<'_, crate::meeting_commands::MeetingAppState>) -> Result<()> {
+    let mut capture = meetings.controller.capture_gate().map_err(|error| error.to_string())?;
     info!("Closing recording session");
     let mut recorder = state
         .recorder
         .lock()
         .map_err(|e| format!("Failed to lock recorder: {}", e))?;
-    recorder.close_session()
+    let result = recorder.close_session();
+    capture.set_cpal_open(recorder.has_open_session());
+    result
 }
 
 #[tauri::command]

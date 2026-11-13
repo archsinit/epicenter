@@ -284,6 +284,12 @@ impl RecorderState {
         Ok(())
     }
 
+    /// Session ownership includes an initialized stream even before Start or
+    /// after Stop. Meeting capture must wait until that stream is closed.
+    pub fn has_open_session(&self) -> bool {
+        self.worker_handle.is_some() || self.cmd_tx.is_some()
+    }
+
     /// Get current recording ID if actively recording
     pub fn get_current_recording_id(&self) -> Option<String> {
         if self.is_recording.load(Ordering::Acquire) {

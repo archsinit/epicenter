@@ -14,6 +14,7 @@ on:
       - 'scripts/menu-bar.test.ts'
       - 'scripts/test-meeting-native.sh'
       - 'scripts/test-meeting-core.sh'
+      - 'scripts/meeting-controls.test.ts'
       - '.github/workflows/intel-macos.yml'
 
 permissions:
@@ -48,7 +49,7 @@ jobs:
       - name: Check frontend types
         run: bun run --cwd apps/whispering check
       - name: Test fork indicator, cleanup and input policies
-        run: bun test scripts/no-telemetry.test.ts scripts/menu-bar.test.ts apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts apps/whispering/src/lib/components/companion-motion.test.ts apps/whispering/src/lib/services/transcription/cloud/openai-request.test.ts
+        run: bun test scripts/no-telemetry.test.ts scripts/menu-bar.test.ts apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts apps/whispering/src/lib/components/companion-motion.test.ts apps/whispering/src/lib/services/transcription/cloud/openai-request.test.ts apps/whispering/src/lib/services/capture-lease.test.ts scripts/meeting-controls.test.ts
       - name: Test hidden native companion travel
         run: |
           xcrun clang -fobjc-arc -Werror -mmacosx-version-min=10.15 \

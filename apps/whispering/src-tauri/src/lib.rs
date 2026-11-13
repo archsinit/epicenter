@@ -10,6 +10,8 @@ pub mod indicator;
 mod indicator_panel;
 pub mod menu_bar;
 pub mod meeting;
+#[path = "meeting/commands.rs"]
+mod meeting_commands;
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, close_recording_session, enumerate_recording_devices,
@@ -147,6 +149,7 @@ pub async fn run() {
         })
         .manage(mouse_shortcuts::MouseState::default())
         .manage(indicator::IndicatorState::default())
+        .manage(meeting_commands::MeetingAppState::default())
         .manage(AppData::new())
         .manage(ModelManager::new());
 
@@ -165,6 +168,15 @@ pub async fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         write_text,
         menu_bar::set_tray_recording,
+        meeting_commands::capture_acquire_dictation,
+        meeting_commands::capture_release_dictation,
+        meeting_commands::meeting_sources,
+        meeting_commands::meeting_request_permission,
+        meeting_commands::meeting_start,
+        meeting_commands::meeting_status,
+        meeting_commands::meeting_stop,
+        meeting_commands::meeting_capture_now,
+        meeting_commands::meeting_pause_screenshots,
         indicator::set_indicator_state,
         indicator::get_indicator_state,
         indicator::start_indicator_drag,
@@ -196,6 +208,9 @@ pub async fn run() {
         .expect("error while building tauri application");
 
     app.run(|handler, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+            meeting_commands::handle_exit(handler, api);
+        }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = &event {
             if let Some(window) = handler.get_webview_window("main") {

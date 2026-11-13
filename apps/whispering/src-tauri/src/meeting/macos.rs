@@ -3,7 +3,7 @@
 //! request permissions and construct each input after the user's Start action.
 
 use super::audio::{AudioPacket, AudioSink, AudioSource, MAX_PACKET_FRAMES};
-use serde::{Deserialize, Serialize};
+pub use super::sources::{CaptureSources, DisplaySource, MicrophoneSource};
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::io;
 use std::marker::PhantomData;
@@ -43,26 +43,6 @@ extern "C" {
     fn wi_meeting_screenshot(display_id: u32, error: *mut c_char, capacity: usize) -> NativeBytes;
     fn wi_meeting_host_time_ns() -> u64;
     fn wi_meeting_free(data: *mut c_void);
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MicrophoneSource {
-    pub id: String,
-    pub name: String,
-}
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DisplaySource {
-    pub id: u32,
-    pub width: u32,
-    pub height: u32,
-    pub main: bool,
-}
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CaptureSources {
-    pub microphones: Vec<MicrophoneSource>,
-    pub displays: Vec<DisplaySource>,
-    pub screen_supported: bool,
 }
 
 fn native_error(buffer: &[c_char]) -> io::Error {

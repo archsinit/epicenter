@@ -4,9 +4,13 @@
 pub mod audio;
 #[cfg(target_os = "macos")]
 pub mod backend_macos;
+pub mod control;
+pub mod controller;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod request;
 pub mod schedule;
+pub mod sources;
 pub mod storage;
 pub mod timeline;
 pub mod worker;

@@ -1,6 +1,6 @@
 # Meeting recording with local screenshot references
 
-Status: implementation in progress. Native capture primitives, the dedicated meeting worker, progressive source WAV writing/alignment, post-stop mixing and independent screenshot processing are implemented and synthetic-tested. Tauri command/application lifecycle integration, UI, recovery and provider integration remain pending; the feature is not yet usable or installed.
+Status: implementation in progress. Native capture primitives, the dedicated meeting worker, progressive source WAV writing/alignment, post-stop mixing and independent screenshot processing are implemented and synthetic-tested. Native Tauri controls/application ownership and Quit finalization are now wired, with their full Mac build pending verification. Frontend capture-lease activation across all backends, meeting UI, recovery and provider integration remain pending; the feature is not yet usable or installed.
 
 ## Purpose
 
@@ -59,7 +59,10 @@ Use normal macOS microphone and screen/system-audio capture permission prompts. 
   - [x] Local manifest/asset storage, atomic manifest replacement, private file permissions, progressive audio-file handles and orphan-file preservation.
   - [x] Dedicated worker actor with Start/Recording/Stop/Mixing/final status, command queue, progress snapshots, shutdown drain and failure/interruption handling.
   - [x] Durable per-chunk source/offset recovery metadata alongside active WAVs, not only in-memory source identity.
-  - [ ] Wire Tauri application lifecycle, list/recover unfinished recordings and integrate explicit Quit finalization.
+  - [x] Wire application-owned controller and main-window-only Tauri controls. Intercept ExitRequested for all normal Quit routes; drain/finalize off the AppKit thread and ask before quitting on incomplete finalization.
+  - [x] Guard direct native CPAL initialization/start and track initialized streams through close/cancel, not only the RECORDING flag.
+  - [ ] Activate verified frontend admission for Navigator/FFmpeg/CPAL and the full VAD listening lifetime before exposing meeting Start in the UI.
+  - [ ] Add local browsing and explicit recovery of unfinished recordings.
 - [ ] Implement real system-plus-microphone and microphone-only recording.
   - [x] Native microphone and system-audio input ownership, source selection, mono 48kHz PCM, host-clock timestamps, callback queue draining and explicit permission entry points.
   - [x] Safe worker-only Rust wrapper, bounded nonblocking audio transport and explicit packet-loss reporting.
@@ -97,4 +100,12 @@ Validation: **49 core-module tests pass** with no new Rust warnings, and the act
 
 Storage tradeoff: current uncompressed 48kHz mono PCM16 keeps raw source tracks plus mixed audio: approximately **1 GB/hour for dual-source meetings**, excluding screenshots (microphone-only roughly 0.7 GB/hour). Add a clear storage estimate in the meeting UI; compression/automatic deletion are not silently introduced.
 
-Next increment: wire Tauri command/application lifecycle with dictation exclusion and Quit finalization, then service → query → Meetings UI, safe local browsing/recovery and explicit audio-only transcription. Do not present the current native worker as an end-user-ready meeting recorder.
+Checkpoint `5043fe1` Intel CI run 43440828639 subsequently PASSED. Downloaded/read its actual validation report and checked test/startup log entries: 65 native Rust tests (49 meeting +16 existing), synthetic capture fixture, frontend checks, Intel release build, signature and eight-second GUI startup on macOS 15.7.9 x86_64. No startup skip. This is not live capture or UI acceptance.
+
+Fourth increment: application-owned controller and native capture gate, main-window-only IPC for source enumeration, explicitly requested permissions, consent-checked Start, status, Stop, manual screenshot and screenshot pause. Native-owned IDs/storage roots cannot be overridden by webview input. Direct CPAL init/start now uses the gate, and initialized streams remain accounted for until close/cancel. Status remains readable while a separate finalizer joins the worker; concurrent Stop/Quit requests share finalization. ExitRequested covers tray, Cmd-Q and other normal exit routes without changing close-to-hide/menu-bar-only policy. Failure to fully finalize prompts before Quit; local files are retained.
+
+A pure frontend lease helper and recorder admission adapter are implemented and synthetic-tested but deliberately NOT exported into live recorder/VAD services yet. Ordinary frontend dictation remains unchanged. Backend cleanup must be proven before activating that adapter: current FFmpeg Stop sends a signal and uses file stabilization without confirming child exit; clearSession ignores kill errors. Native spawn_command returns a PID without retaining a Child handle. Navigator's start/cancel exceptions also need unconditional track cleanup, and CPAL cancellation with no current recording ID must close an initialized session. VAD needs a lease spanning acquisition, listening and actual track cleanup, not individual speech chunks. These are implementation tasks, not permission-dependent blockers; do not expose meeting Start until all modes are covered. Do not mistake file stability or an IDLE flag for closed audio hardware.
+
+Fourth-increment validation: 65 pure Rust meeting/core tests pass, including gate ownership, initialized CPAL exclusion, concurrent finalization, live status during Stop, shutdown admission, failed-start reaping, poisoned-state failure handling and input/consent validation. The actual macOS wrapper/backend type-checks in the portable harness. Four source-contract tests check Tauri registration/window scope/exit and CPAL wiring; ten frontend lease/adapter tests use fake backends. Combined existing focused Bun suite: 65 passing tests. App type check: zero errors/17 inherited warnings. Full Tauri IPC compilation/packaged lifecycle acceptance still requires the new Intel CI run and later coordinated real-Mac tests; source contracts are not IPC/GUI acceptance. No live capture, OS prompt, provider call or installation occurred in this increment.
+
+Next increment: verify new Intel CI, prove backend cleanup/FFmpeg process exit, activate capture leases across all methods including VAD, then service → query → Meetings UI, local browsing/recovery and explicit audio-only transcription. Keep the scheduler running while these independent implementation tasks remain. Do not present the native controls as an end-user-ready meeting recorder.
