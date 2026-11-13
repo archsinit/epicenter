@@ -1,6 +1,8 @@
 # Whispering Intel overlay design → implementation handoff
 
-Use this file with Roger's finished design assets/specification. The design is being developed separately; no replacement appearance has been approved in this coding session. Fill in the design section below, then give this file and the referenced assets to the implementation session.
+Living handoff for Roger's approved design references, implementation and test evidence. The latest installation summary below supersedes the older initial-handoff snapshots retained later in this file.
+
+**Current installed runtime: 13c968a**, installed at Roger's explicit request after CI 43387095026 passed 31 Bun +16 Rust tests, types, Intel build, signature and startup checks (actual report read). Installed executable SHA matches the artifact; prior bundle backed up at the stable fork installation path. Actual Mac AX confirms visible 180×120 companion, WebGL renderer ready, native tray present and Accessory activation. Settings/providers/bindings/permissions/upstream app were not changed. Native visual/performance and drag/focus acceptance remain open; no synthetic input was used for this installation.
 
 ## For the design session to complete
 
@@ -41,7 +43,7 @@ Roger approved a four-form Gastly reference sheet, saying “Now what? I'm satis
 
 Roger's cyan Gastly illustration is a contour/motion reference only, saved at workspace `/home/piweb/workspace/gastly-companion/silhouette-reference-cyan.png`; keep the approved purple semi-realistic style. He wants small flutter AND larger independent billows, a noncircular outline with longer plumes in some directions, and wisps lagging the head. He explicitly emphasized natural translucent gas, not cartoon edges, spikes or triangular fans.
 
-See `apps/whispering/specs/20261113T071100-irregular-billows-and-trails.md` for the local soft-volume revision and its browser preview. Local checks: 31 Bun tests, 0 type errors/17 inherited warnings, real rendered-pixel checks for uneven directional growth, trailing emitter, no bars and true meter levels. **This latest billow appearance is not yet installed.** Installed build is `dcaefc2` (CI 43381624764: 30 Bun +16 Rust tests, actual report read); actual Mac AX confirmed its WebGL renderer loaded in the NSPanel and main-window close leaves the companion visible. Its guarded desktop input test aborted/refused mid-test, so packaged drag/focus/click-through is NOT a recorded pass. Do not drive Roger's desktop/mouse while he is actively testing. Native screen capture remains unavailable; no permission/settings/provider/binding changes were made.
+See `apps/whispering/specs/20261113T071100-irregular-billows-and-trails.md` for the local soft-volume revision and its browser preview. Local checks: 31 Bun tests, 0 type errors/17 inherited warnings, real rendered-pixel checks for uneven directional growth, trailing emitter, no bars and true meter levels. **The latest billow revision is now installed as 13c968a** (see current summary at top). The prior dcaefc2 build had a guarded desktop input test abort/refuse mid-test, so packaged drag/focus/click-through remains NOT a recorded pass. Do not drive Roger's desktop/mouse while he is actively testing. Native screen capture remains unavailable; no permission/settings/provider/binding changes were made.
 
 ### Revision implementation/testing
 
@@ -74,7 +76,7 @@ Latest explicit app-lifecycle requirement: **menu-bar/tray only, NO Dock item**.
 
 Other decisions: telemetry removed; automatic Enter OFF by default, with a separate manual Enter action; automatic LLM cleanup explicitly opt-in and OFF by default; optional mouse bindings alongside keyboard bindings. Roger reports OpenAI dictation and mouse buttons work well. Do not disturb his provider/key/settings or broaden testing to speech-recognition quality.
 
-## Repository and current build status
+## Historical initial-handoff repository/build snapshot (superseded above)
 
 - Working directory: `/home/piweb/workspace/projects/whispering-intel`.
 - Repository: https://github.com/archsinit/epicenter ; branch: `whispering-intel`.
