@@ -9,6 +9,7 @@ pub mod capture_process;
 pub mod control;
 pub mod controller;
 pub mod library;
+pub mod local_folder;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod quit;

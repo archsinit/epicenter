@@ -41,6 +41,7 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'meeting_saved_detail',
 			'meeting_read_mixed_audio',
 			'meeting_read_screenshot',
+			'meeting_reveal_folder',
 		]) {
 			expect(command(name)).toContain('main_window(&window)?');
 			expect(app).toContain(`meeting_commands::${name},`);
@@ -143,6 +144,30 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(command('meeting_start')).toContain('menu_bar::meeting_transition');
 		expect(command('meeting_status')).toContain('sync_meeting_mark(');
 	});
+	test('Finder reveal is a separate explicit native-rooted local action, including damaged folders', () => {
+        const reveal = command('meeting_reveal_folder');
+        expect(reveal).toContain('local_folder::reveal(&meeting_root(&app)?, &id');
+        expect(reveal).toContain('reveal_item_in_dir(path)');
+        expect(reveal).not.toContain('open_url(');
+        const folder = readFileSync(new URL('meeting/local_folder.rs', root), 'utf8');
+        expect(folder).toContain('checked_meeting_directory(root, id)?.canonicalize()?');
+        expect(folder).not.toContain('SavedMeeting::load');
+        const query = readFileSync(new URL('../apps/whispering/src/lib/query/meeting-library.ts', import.meta.url), 'utf8');
+        expect(query).toContain("mutationKey: ['meetings', 'reveal-folder']");
+        expect(query).toContain('retry: false');
+        const button = readFileSync(new URL('../apps/whispering/src/routes/(app)/(config)/meetings/RevealMeetingFolder.svelte', import.meta.url), 'utf8');
+        expect(button).toContain('onclick={() => reveal.mutate(id)}');
+        expect(button).toContain('reveal.data?.id === id');
+        expect(button).toContain('reveal.variables === id');
+        expect(button).not.toContain('onMount(');
+        expect(button).not.toContain('$effect(');
+        const page = readFileSync(new URL('../apps/whispering/src/routes/(app)/(config)/meetings/MeetingLibrary.svelte', import.meta.url), 'utf8');
+        expect(page).toContain('<RevealMeetingFolder id={entry.id} />');
+        expect(page).toContain('{#key entry.id}');
+        // Scope keys per row: lossy invalid folder names may repeat and must
+        // not crash a globally keyed list. Those IDs cannot dispatch reveal.
+        expect(page).not.toContain('{#each library.data.entries as entry (entry.id)}');
+    });
 	test('audio recovery is a local copy engine, unexposed until maintenance admission and confirmation exist', () => {
         const engine = readFileSync(new URL('meeting/audio_recovery.rs', root), 'utf8');
         for (const unsafe of ['remove_file(', 'remove_dir(', 'MacMeetingBackend', 'request_permission(', 'reqwest', 'open_screenshot_for_local_preview(', 'open_audio_for_transcription('])

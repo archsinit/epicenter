@@ -4,6 +4,8 @@
 	import { meetingLibrary } from '$lib/query/meeting-library';
 	import { createLocalPreviewUrl, formatMeetingOffset } from '$lib/services/meetings/library';
 
+	import RevealMeetingFolder from './RevealMeetingFolder.svelte';
+
 	let selectedId = $state<string | null>(null);
 	const library = createQuery(() => meetingLibrary.list.options);
 	const detail = createQuery(() => ({
@@ -30,6 +32,7 @@
 			Screenshots stay local and are never sent to a transcription provider or LLM.
 		</p>
 		<p class="text-sm text-muted-foreground">Retained source plus mixed WAVs use approximately 1 GB/hour for dual-source meetings or 0.7 GB/hour for microphone-only, excluding screenshots.</p>
+		<p class="text-sm text-muted-foreground">Reveal selects a local folder in Finder, including folders with damaged metadata. Do not move, edit or delete files while recording or finalizing.</p>
 		<Button variant="outline" disabled={library.isFetching} onclick={() => library.refetch()}>
 			{library.isFetching ? 'Refreshing…' : 'Refresh local meetings'}
 		</Button>
@@ -59,6 +62,9 @@
 						{#if entry.durationMs !== null} · {formatMeetingOffset(entry.durationMs)}{/if}
 					</p>
 					{#if entry.error}<p role="status">{entry.error}</p>{/if}
+					{#key entry.id}
+						<RevealMeetingFolder id={entry.id} />
+					{/key}
 				</li>
 			{/each}
 		</ul>

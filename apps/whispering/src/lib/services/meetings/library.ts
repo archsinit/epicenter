@@ -23,13 +23,14 @@ export type MeetingPreview =
 	| { kind: 'local-screenshot'; localOnly: true; blob: Blob };
 const { MeetingLibraryServiceErr } = createTaggedError('MeetingLibraryServiceError');
 type Request = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
-const validId = (id: string) => /^[a-zA-Z0-9-]{1,96}$/.test(id);
+export function isLocalMeetingId(id: string) { return /^[a-zA-Z0-9-]{1,96}$/.test(id); }
 const natural = (n: number) => Number.isSafeInteger(n) && n >= 0;
 const nullableNatural = (n: number | null) => n === null || natural(n);
 const invalid = (message = 'Invalid local meeting-library response; files were retained.') => MeetingLibraryServiceErr({ message });
 const PNG = [137, 80, 78, 71, 13, 10, 26, 10];
 
-/** Local-only read API. No provider, capture, settings, clipboard or LLM import.
+/** Local-only browsing and explicit folder reveal. No provider, capture,
+ * settings, clipboard or LLM import.
  * Screenshot objects are explicitly local-only and never returned as audio.
  */
 export function createMeetingLibraryService(request: Request) {
@@ -40,7 +41,7 @@ export function createMeetingLibraryService(request: Request) {
 		});
 	}
 	async function asset(id: string, index: number, kind: 'audio' | 'local-screenshot') {
-		if (!validId(id) || !natural(index)) return invalid('Invalid meeting/asset selection.');
+		if (!isLocalMeetingId(id) || !natural(index)) return invalid('Invalid meeting/asset selection.');
 		const maximum = (kind === 'audio' ? 16 : 64) * 1024 * 1024;
 		const result = await read(kind === 'audio' ? 'meeting_read_mixed_audio' : 'meeting_read_screenshot', { id, index });
 		if (result.error) return Err(result.error);
@@ -72,7 +73,7 @@ export function createMeetingLibraryService(request: Request) {
 			return Ok(library);
 		},
 		async detail(id: string) {
-			if (!validId(id)) return invalid('Invalid meeting selection.');
+			if (!isLocalMeetingId(id)) return invalid('Invalid meeting selection.');
 			const result = await read('meeting_saved_detail', { id });
 			if (result.error) return Err(result.error);
 			const detail = Detail(result.data);
@@ -83,6 +84,16 @@ export function createMeetingLibraryService(request: Request) {
 				|| m.screenshots.some((a) => !/^screenshots\/[0-9]+\.png$/.test(a.path) || !natural(a.offsetMs))) return invalid();
 			return Ok(detail);
 		},
+		/** Explicit local OS action. The native side owns all path resolution. */
+        async revealFolder(id: string) {
+            if (!isLocalMeetingId(id)) return invalid('Invalid meeting selection.');
+            const result = await read('meeting_reveal_folder', { id });
+            if (result.error) return Err(result.error);
+            const ack = type({ id: 'string' })(result.data);
+            if (ack instanceof type.errors || ack.id !== id || Object.keys(ack).length !== 1)
+                return invalid('Finder request acknowledgement did not match this meeting.');
+            return Ok({ id });
+        },
 		readMixedAudio: (id: string, index: number) => asset(id, index, 'audio'),
 		readScreenshot: (id: string, index: number) => asset(id, index, 'local-screenshot'),
 	};

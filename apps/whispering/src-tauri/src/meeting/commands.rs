@@ -386,6 +386,35 @@ pub async fn meeting_read_screenshot(
     .await
 }
 
+/// Explicit local action; accepts an ID only and never returns a filesystem path.
+#[tauri::command]
+pub async fn meeting_reveal_folder(
+    window: WebviewWindow,
+    id: String,
+    app: tauri::AppHandle,
+) -> Result<crate::meeting::local_folder::RevealedMeetingFolder> {
+    main_window(&window)?;
+    blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            use tauri_plugin_opener::OpenerExt;
+            crate::meeting::local_folder::reveal(&meeting_root(&app)?, &id, |path| {
+                app.opener()
+                    .reveal_item_in_dir(path)
+                    .map_err(|error| io::Error::other(error.to_string()))
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (app, id);
+            Err(io::Error::other(
+                "Reveal in Finder is available only on macOS",
+            ))
+        }
+    })
+    .await
+}
+
 fn receipt_root(app: &tauri::AppHandle) -> io::Result<PathBuf> {
     Ok(app
         .path()

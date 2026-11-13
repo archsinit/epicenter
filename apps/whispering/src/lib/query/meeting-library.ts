@@ -22,6 +22,15 @@ export const meetingLibrary = {
 			},
 		});
 	},
+	revealFolder: defineMutation({
+        mutationKey: ['meetings', 'reveal-folder'],
+        retry: false,
+        mutationFn: async (id: string) => {
+            const result = await MeetingLibraryServiceLive.revealFolder(id);
+            if (result.error) return WhisperingErr({ title: 'Cannot reveal local meeting folder', serviceError: result.error });
+            return Ok(result.data);
+        },
+    }),
 	preview: defineMutation({
 		mutationKey: ['meetings', 'local-preview'],
 		mutationFn: async ({ id, index, kind }: { id: string; index: number; kind: 'audio' | 'local-screenshot' }) => {

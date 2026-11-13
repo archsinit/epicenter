@@ -186,6 +186,7 @@ pub async fn run() {
         meeting_commands::meeting_saved_detail,
         meeting_commands::meeting_read_mixed_audio,
         meeting_commands::meeting_read_screenshot,
+        meeting_commands::meeting_reveal_folder,
         indicator::set_indicator_state,
         indicator::get_indicator_state,
         indicator::start_indicator_drag,

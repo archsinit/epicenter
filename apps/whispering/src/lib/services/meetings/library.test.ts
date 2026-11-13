@@ -66,6 +66,29 @@ describe('meeting library client (synthetic IPC, no providers/devices)', () => {
 		}
 		expect(f.calls).toHaveLength(0);
 	});
+	test('Finder reveal is explicit, passes only an ID and accepts only a matching acknowledgement', async () => {
+        const f = fixture();
+        expect(f.calls).toHaveLength(0);
+        f.response = { id: 'meeting-1' };
+        expect((await f.service.revealFolder('meeting-1')).data).toEqual({ id: 'meeting-1' });
+        expect(f.calls).toEqual([{ command: 'meeting_reveal_folder', args: { id: 'meeting-1' } }]);
+        for (const response of [null, undefined, true, '/local/folder', { id: 'other' }, { id: 'meeting-1', path: '/private' }]) {
+            f.response = response;
+            expect((await f.service.revealFolder('meeting-1')).error).toBeTruthy();
+        }
+    });
+    test('invalid reveal selections never dispatch, and native errors do not retry or fall back', async () => {
+        const f = fixture();
+        for (const id of ['', '../outside', 'file:///tmp', '/tmp', 'bad name', 'x'.repeat(97)]) {
+            expect((await f.service.revealFolder(id)).error).toBeTruthy();
+        }
+        expect(f.calls).toHaveLength(0);
+        let calls = 0;
+        const service = createMeetingLibraryService(async () => { calls++; throw new Error('synthetic Finder permission denial'); });
+        const result = await service.revealFolder('meeting-1');
+        expect(result.error?.message).toContain('synthetic Finder permission denial');
+        expect(calls).toBe(1);
+    });
 	test('audio and screenshots use distinct native commands and distinct local result types', async () => {
 		const f = fixture();
 		f.response = wav().buffer;
