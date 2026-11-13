@@ -1,5 +1,5 @@
 //! Native meeting worker, progressive audio storage and capture backends.
-//! Application commands/UI are not yet wired; importing never starts capture.
+//! Application IPC is registered separately; importing never starts capture.
 
 pub mod audio;
 #[cfg(target_os = "macos")]
@@ -9,6 +9,7 @@ pub mod control;
 pub mod controller;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod recovery;
 pub mod request;
 pub mod schedule;
 pub mod sources;

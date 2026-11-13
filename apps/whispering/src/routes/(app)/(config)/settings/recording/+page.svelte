@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DesktopOutputFolder from './DesktopOutputFolder.svelte';
+	import SavedSessionRecovery from '$routes/(app)/(config)/settings/recording/SavedSessionRecovery.svelte';
 	import FfmpegCommandBuilder from './FfmpegCommandBuilder.svelte';
 	import * as Field from '@epicenter/ui/field';
 	import * as Select from '@epicenter/ui/select';
@@ -107,6 +108,9 @@
 	<Field.Description>
 		Configure your Whispering recording preferences.
 	</Field.Description>
+	{#if IS_MACOS && window.__TAURI_INTERNALS__}
+		<SavedSessionRecovery />
+	{/if}
 	<Field.Separator />
 	<Field.Group>
 		<Field.Field>

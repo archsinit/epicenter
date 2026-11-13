@@ -174,6 +174,7 @@ pub async fn run() {
         meeting_commands::capture_ffmpeg_stop,
         meeting_commands::capture_ffmpeg_restore,
         meeting_commands::capture_restore_ready,
+        meeting_commands::capture_recover_saved_session,
         meeting_commands::meeting_sources,
         meeting_commands::meeting_request_permission,
         meeting_commands::meeting_start,

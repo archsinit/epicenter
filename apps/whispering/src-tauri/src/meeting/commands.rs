@@ -84,6 +84,39 @@ pub async fn capture_restore_ready(
     blocking(move || controller.capture_gate()?.finish_startup_restore()).await
 }
 
+/// Explicit user-driven recovery, never startup cleanup. Does not reset the
+/// gate or manufacture an exit receipt. Full Quit/relaunch remains required.
+#[tauri::command]
+pub async fn capture_recover_saved_session(
+    window: WebviewWindow,
+    saved_session: String,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<Option<String>> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || {
+        controller.capture_gate()?.ensure_metadata_recovery_allowed()?;
+        crate::meeting::recovery::validate_saved_metadata(&saved_session)?;
+        let confirmed = app.dialog()
+            .message("Whispering cannot verify an earlier FFmpeg recording. It will NOT signal a saved PID or stop an unknown process.\n\nFirst stop the earlier recorder normally and independently verify it is no longer recording. If you cannot verify that, cancel.\n\nConfirm only if you have already stopped it. Its saved metadata will be archived locally and audio files kept untouched. This is your confirmation, not native proof of exit. Capture stays blocked until you fully Quit and relaunch Whispering Intel; closing the window is not enough.")
+            .title("Recover saved recording metadata")
+            .buttons(MessageDialogButtons::OkCancelCustom("I stopped it — archive metadata".into(), "Cancel".into()))
+            .blocking_show();
+        if !confirmed { return Ok(None); }
+        // Recheck after the dialog: Quit or a known recorder may have changed
+        // state. Hold the gate through persistence; never clear its quarantine.
+        let gate = controller.capture_gate()?;
+        gate.ensure_metadata_recovery_allowed()?;
+        let parent = app.path().app_data_dir().map_err(|error| io::Error::other(error.to_string()))?;
+        std::fs::create_dir_all(&parent)?;
+        let path = crate::meeting::recovery::archive_confirmed_metadata(
+            &parent.join("capture-recovery"), &saved_session,
+        )?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }).await
+}
+
 #[tauri::command]
 pub async fn capture_acquire_dictation(
     window: WebviewWindow,

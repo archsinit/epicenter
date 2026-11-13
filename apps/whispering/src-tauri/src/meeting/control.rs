@@ -119,6 +119,19 @@ impl CaptureGate {
     pub fn note_unverified_ffmpeg(&mut self) {
         self.ffmpeg_unverified = true;
     }
+    /// Recovery archives metadata only. Even user confirmation is not native
+    /// proof of process exit: the current application's quarantine stays set.
+    pub fn ensure_metadata_recovery_allowed(&self) -> io::Result<()> {
+        if !self.ffmpeg_unverified {
+            return Err(io::Error::other(
+                "No unverified recording session needs recovery",
+            ));
+        }
+        if self.owner.is_some() || self.cpal_open || self.ffmpeg_open || self.closing {
+            return Err(io::Error::other("Stop the known active recorder and cancel shutdown before recovering stale metadata"));
+        }
+        Ok(())
+    }
     pub fn has_ffmpeg(&self) -> bool {
         self.ffmpeg_open || self.ffmpeg_unverified
     }
@@ -139,6 +152,44 @@ impl CaptureGate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_recovery_never_releases_quarantine_and_requires_unverified_state() {
+        let mut gate = CaptureGate::awaiting_restore();
+        assert!(gate.ensure_metadata_recovery_allowed().is_err());
+        gate.note_unverified_ffmpeg();
+        assert!(gate.ensure_metadata_recovery_allowed().is_ok());
+        assert!(gate.finish_startup_restore().is_err());
+        assert!(gate.begin_meeting().is_err());
+        assert!(gate.ensure_cpal_allowed().is_err());
+        assert!(gate.ensure_ffmpeg_allowed().is_err());
+        gate.begin_shutdown();
+        assert!(gate.ensure_metadata_recovery_allowed().is_err());
+        gate.cancel_shutdown();
+        assert!(gate.ensure_metadata_recovery_allowed().is_ok());
+    }
+    #[test]
+    fn metadata_recovery_refuses_known_capture_resources_and_owners() {
+        let mut gate = CaptureGate::default();
+        let token = gate.begin_dictation().unwrap();
+        gate.note_unverified_ffmpeg();
+        assert!(gate.ensure_metadata_recovery_allowed().is_err());
+        // A matching frontend lease is not removed by recovery.
+        assert!(gate.end_dictation(&token).is_err());
+        let mut meeting = CaptureGate::default();
+        meeting.begin_meeting().unwrap();
+        meeting.note_unverified_ffmpeg();
+        assert!(meeting.ensure_metadata_recovery_allowed().is_err());
+        for resource in ["cpal", "ffmpeg"] {
+            let mut gate = CaptureGate::awaiting_restore();
+            gate.note_unverified_ffmpeg();
+            if resource == "cpal" {
+                gate.set_cpal_open(true);
+            } else {
+                gate.set_ffmpeg_open(true);
+            }
+            assert!(gate.ensure_metadata_recovery_allowed().is_err());
+        }
+    }
     #[test]
     fn startup_fences_every_capture_entry_until_restore_acknowledged() {
         let mut gate = CaptureGate::awaiting_restore();

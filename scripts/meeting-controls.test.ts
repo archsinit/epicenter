@@ -29,6 +29,7 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'capture_ffmpeg_stop',
 			'capture_ffmpeg_restore',
 			'capture_restore_ready',
+			'capture_recover_saved_session',
 			'meeting_sources',
 			'meeting_request_permission',
 			'meeting_start',
@@ -53,6 +54,18 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(cpalClient.indexOf('await waitForCaptureStartup()')).toBeLessThan(
 			cpalClient.indexOf('const { data: devices, error: enumerateError }'),
 		);
+	});
+	test('saved metadata recovery requires native confirmation, archives before acknowledgement, and never clears quarantine', () => {
+		const recover = command('capture_recover_saved_session');
+		expect(recover.match(/ensure_metadata_recovery_allowed\(\)/g)?.length).toBe(2);
+		expect(recover.indexOf('validate_saved_metadata')).toBeLessThan(recover.indexOf('.blocking_show()'));
+		expect(recover.indexOf('.blocking_show()')).toBeLessThan(recover.indexOf('archive_confirmed_metadata'));
+		expect(recover.indexOf('if !confirmed')).toBeLessThan(recover.indexOf('archive_confirmed_metadata'));
+		for (const unsafe of ['signal_owned_process(', 'stop_ffmpeg(', 'finish_startup_restore(', 'remove_file(', 'write_exit_receipt('])
+			expect(recover).not.toContain(unsafe);
+		const page = readFileSync(new URL('../apps/whispering/src/routes/(app)/(config)/settings/recording/+page.svelte', import.meta.url), 'utf8');
+		expect(page).toContain('{#if IS_MACOS && window.__TAURI_INTERNALS__}');
+		expect(page).toContain('<SavedSessionRecovery />');
 	});
 	test('Quit interception covers ExitRequested rather than only tray actions', () => {
 		expect(app).toContain('RunEvent::ExitRequested { api, .. }');
