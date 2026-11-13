@@ -6,6 +6,8 @@ pub mod audio_meter;
 pub mod mouse_policy;
 pub mod mouse_shortcuts;
 pub mod indicator;
+#[cfg(target_os = "macos")]
+mod indicator_panel;
 pub mod menu_bar;
 pub mod recorder;
 use recorder::commands::{

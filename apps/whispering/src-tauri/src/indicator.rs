@@ -27,7 +27,13 @@ fn pointer_hits_companion(phase: Phase, x: f64, y: f64) -> bool {
 fn update_cursor_mode(window: &tauri::WebviewWindow, ignore: bool) {
     let previous = CURSOR_IGNORED.swap(ignore, Ordering::Relaxed);
     if previous != ignore {
-        if let Err(error) = window.set_ignore_cursor_events(ignore) {
+        #[cfg(target_os = "macos")]
+        let result = crate::indicator_panel::ignore_mouse(window, ignore);
+        #[cfg(not(target_os = "macos"))]
+        let result = window
+            .set_ignore_cursor_events(ignore)
+            .map_err(|e| e.to_string());
+        if let Err(error) = result {
             CURSOR_IGNORED.store(previous, Ordering::Relaxed);
             log::warn!("Could not update companion pointer mode: {}", error);
         }
@@ -112,7 +118,14 @@ pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
             origin.y + size.height as i32 - ((WINDOW_HEIGHT + BOTTOM_MARGIN) * scale) as i32,
         ))?;
     }
-    // Position before showing; only the character's primary-button drag target handles clicks.
+    // A real non-activating NSPanel hosts the existing content on macOS. The
+    // Tauri NSWindow stays hidden as IPC owner; no runtime class replacement.
+    #[cfg(target_os = "macos")]
+    {
+        crate::indicator_panel::create(&window).map_err(std::io::Error::other)?;
+        crate::indicator_panel::show(&window).map_err(std::io::Error::other)?;
+    }
+    #[cfg(not(target_os = "macos"))]
     window.show()?;
     Ok(())
 }
@@ -129,6 +142,9 @@ pub fn set_indicator_state(
         .get_webview_window("recording-indicator")
         .ok_or("Recording indicator window unavailable")?;
     // Idle is now a persistent companion, not a hidden recording indicator.
+    #[cfg(target_os = "macos")]
+    return crate::indicator_panel::show(&window);
+    #[cfg(not(target_os = "macos"))]
     window.show().map_err(|e| e.to_string())
 }
 
@@ -146,11 +162,22 @@ pub fn get_indicator_state(
     let gaze = app
         .get_webview_window("recording-indicator")
         .and_then(|window| {
-            let cursor = window.cursor_position().ok()?;
-            let origin = window.inner_position().ok()?;
-            let scale = window.scale_factor().ok()?;
-            let x = (cursor.x - origin.x as f64) / scale;
-            let y = (cursor.y - origin.y as f64) / scale;
+            #[cfg(target_os = "macos")]
+            let (x, y, scale) = {
+                let pointer = crate::indicator_panel::pointer(&window, phase == Phase::Recording)?;
+                (pointer.x, pointer.y, pointer.scale)
+            };
+            #[cfg(not(target_os = "macos"))]
+            let (x, y, scale) = {
+                let cursor = window.cursor_position().ok()?;
+                let origin = window.inner_position().ok()?;
+                let scale = window.scale_factor().ok()?;
+                (
+                    (cursor.x - origin.x as f64) / scale,
+                    (cursor.y - origin.y as f64) / scale,
+                    scale,
+                )
+            };
             update_cursor_mode(&window, !pointer_hits_companion(phase, x, y));
             Some(gaze_direction(
                 (x - WINDOW_WIDTH / 2.0) * scale,
@@ -185,6 +212,9 @@ pub fn start_indicator_drag(window: tauri::WebviewWindow) -> Result<(), String> 
     if window.label() != "recording-indicator" {
         return Err("Only the companion window can initiate this drag".into());
     }
+    #[cfg(target_os = "macos")]
+    return crate::indicator_panel::drag(&window);
+    #[cfg(not(target_os = "macos"))]
     window.start_dragging().map_err(|e| e.to_string())
 }
 
