@@ -103,7 +103,14 @@
 	data-renderer={ready ? 'webgl' : 'fallback'}
 	data-motion={reduced ? 'reduced' : 'full'}
 >
-	<canvas bind:this={canvas} class:ready aria-hidden="true"></canvas>
+	<canvas
+		bind:this={canvas}
+		class:ready
+		role="img"
+		aria-label={ready
+			? 'Gastly with evolving smoke'
+			: 'Gastly fallback graphic'}
+	></canvas>
 	{#if !ready}
 		<div class="fallback" aria-hidden="true">
 			{#each Array(12) as _, index}
