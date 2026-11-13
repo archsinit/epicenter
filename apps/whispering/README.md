@@ -572,7 +572,7 @@ With Groq (my favorite): $0.02-$0.06/hour. With OpenAI: $0.18-$0.36/hour. Local 
 
 Your recordings stay on your device in IndexedDB. When you transcribe, audio goes directly to your chosen provider using your API key. No middleman servers. For maximum privacy, use local transcription.
 
-Note: we use anonymized event logging with [Aptabase](https://github.com/aptabase), an open-source, privacy-first analytics service. No personal data is attached to any of these events. You can see exactly what events we log [in `analytics.ts`](https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering/src/lib/services/analytics.ts) and where they are logged [by searching for `rpc.analytics.logEvent` in our codebase](https://github.com/search?q=repo%3AEpicenterHQ%2Fepicenter+rpc.analytics.logEvent&type=code). You can turn this off in settings at any time.
+This Intel fork does not collect or send usage telemetry. Audio and any requested cleanup text still go to the providers you configure; local diagnostic logs remain on your device.
 
 ### Can I format the output automatically?
 

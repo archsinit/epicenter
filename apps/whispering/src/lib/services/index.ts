@@ -1,4 +1,3 @@
-import { AnalyticsServiceLive } from './analytics';
 import { CommandServiceLive } from './command';
 import * as completions from './completion';
 import { DbServiceLive } from './db';
@@ -23,7 +22,6 @@ import { TrayIconServiceLive } from './tray';
  * Unified services object providing consistent access to all services.
  */
 export {
-	AnalyticsServiceLive as analytics,
 	TextServiceLive as text,
 	CommandServiceLive as command,
 	completions,

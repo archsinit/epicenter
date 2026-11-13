@@ -43,8 +43,6 @@
 	"type": "module",
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.55.0",
-		"@aptabase/tauri": "^0.4.1",
-		"@aptabase/web": "^0.4.3",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/hq": "workspace:*",
 		"@epicenter/shared": "workspace:*",

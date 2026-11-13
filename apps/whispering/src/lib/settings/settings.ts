@@ -228,9 +228,6 @@ export const Settings = type({
 	'apiEndpoints.openai': "string = ''",
 	'apiEndpoints.groq': "string = ''",
 
-	// Analytics settings
-	'analytics.enabled': 'boolean = true',
-
 	// Mouse bindings are independent of keyboard shortcuts and start unassigned.
 	'shortcuts.mouse.bindings': type({
 		button: 'number.integer',

@@ -8,6 +8,16 @@ Roger has approved implementation, builds, tests and incremental commits/pushes.
 
 ## Latest conversation
 
+IMPORTANT requirement correction: Roger meant the TOP menu bar/tray, not the Dock. He now explicitly wants NO Dock item and menu-bar-only access. This supersedes persistent-Dock requirements and the earlier missing-Dock report. Implemented native menu-bar creation before switching macOS to Accessory policy; Show Window/Settings/Quit target main window, frontend only updates native recording status. Source also removes telemetry. Existing installed dd43322 remains unchanged. Local 22 focused tests and app check (zero errors/17 inherited warnings) pass; two new native icon tests await Mac CI. New build and actual Mac absence-of-Dock/menu actions/close-to-hide/shortcut checks remain pending. See specs/20261113T050000-menu-bar-only.md. Overlay appearance is still a separate design discussion.
+
+Dock retested at Roger's request on 13 November using existing dd43322: Regular activation policy and left-hand Dock item present; actual close hid the main window while preserving PID/icon; actual Dock click reopened and focused the same PID. Native Quit exited; normal relaunch restored main window and Dock item. No missing-icon failure reproduced, no Dock code or macOS preference changes made. Earlier user report remains open pending clarification: running versus permanently pinned icon, intermittent/Space-specific disappearance. See WORK-STATE.md for evidence. Telemetry removal remains source-only; unchanged installed build was not replaced.
+
+Latest update (13 November): Roger reports actual everyday OpenAI usage works well, including mouse buttons. He reports the Dock item is NOT visible, even after closing, so reopen Dock persistence as a reported bug despite the earlier observed pass. He dislikes the overlay appearance and wants to design improvements together; no new design has been agreed. Prioritize these over repeating broad acceptance tests.
+
+He also requested telemetry removal. Implemented in the working tree: frontend event calls/services/query/analytics settings UI removed; native Aptabase plugin/lifecycle reporting/capability and SDK dependencies removed; JS/Rust lockfiles refreshed. Three focused source guards added to Intel CI; 19 local tests pass, app type check zero errors/17 inherited warnings, diff whitespace check passes. See specs/20261113T043000-remove-whispering-telemetry.md. No new native Mac build/install or runtime network audit yet. His installed dd43322 build still has the old code; do not claim removal is deployed or overwrite his working OpenAI configuration.
+
+The following earlier handoff context is historical where superseded by the update above.
+
 Roger is now at his computer and wants to test the remaining changes for real. The agent opened the installed fork and asked him to enable Microphone and Accessibility for **Whispering Intel**, not upstream Whispering. He has NOT confirmed those permissions were enabled. Check the current state rather than assuming either approval or denial.
 
 He is considering this model split:

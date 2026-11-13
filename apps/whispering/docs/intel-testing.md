@@ -16,6 +16,10 @@ Use [this app artifact](https://github.com/archsinit/epicenter/actions/runs/4325
 
 Download the app artifact from this fork's Intel macOS workflow after a successful run. The initial build is ad-hoc signed, not Developer ID signed or notarized. Follow normal macOS approval prompts; do not disable Gatekeeper. The fork has its own app identity and stores data separately from upstream Whispering. Updates are manual; it does not install upstream releases.
 
+## Dock recheck on Roger's Mac, 13 November 2026
+
+Existing dd43322 on Intel macOS 26.7.1: Regular activation policy and fork item in left-hand Dock. Close hid the main window while preserving the process and Dock item; clicking the actual Dock item reopened/focused the same process. Explicit native Quit exited; normal relaunch restored main window and Dock item. These checks passed again, but Roger's earlier report of a missing Dock item remains unexplained. No Dock code, pinning or OS preferences changed. Full-screen/Spaces/multiple-monitor checks remain pending. A running Dock item does not mean the app is permanently pinned after Quit.
+
 ## Dock and focus
 
 - Launch the app. Its Dock icon should remain present.

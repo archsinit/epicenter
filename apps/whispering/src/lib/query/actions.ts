@@ -4,7 +4,6 @@ import { WhisperingErr } from '$lib/result';
 import { DbServiceErr } from '$lib/services/db';
 import { settings } from '$lib/stores/settings.svelte';
 import * as transformClipboardWindow from '../../routes/transform-clipboard/transformClipboardWindow.tauri';
-import { rpc } from './';
 import { defineMutation } from './_client';
 import { db } from './db';
 import { delivery } from './delivery';
@@ -26,9 +25,6 @@ import { vadRecorder } from './vad.svelte';
  * sideways through notify.error.execute() instead of up the call stack. Actions are
  * the end of the operation chain.
  */
-
-// Track manual recording start time for duration calculation
-let manualRecordingStartTime: number | null = null;
 
 /**
  * Mutex flag to prevent concurrent recording operations.
@@ -123,8 +119,6 @@ const startManualRecording = defineMutation({
 				}
 			}
 		}
-		// Track start time for duration calculation
-		manualRecordingStartTime = Date.now();
 		console.info('Recording started');
 		sound.playSoundIfEnabled.execute('manual-start');
 		return Ok(undefined);
@@ -171,18 +165,6 @@ const stopManualRecording = defineMutation({
 		console.info('Recording stopped');
 		sound.playSoundIfEnabled.execute('manual-stop');
 
-		// Log manual recording completion
-		let duration: number | undefined;
-		if (manualRecordingStartTime) {
-			duration = Date.now() - manualRecordingStartTime;
-			manualRecordingStartTime = null; // Reset for next recording
-		}
-		rpc.analytics.logEvent.execute({
-			type: 'manual_recording_completed',
-			blob_size: blob.size,
-			duration,
-		});
-
 		// Pipeline runs after mutex is released - new recordings can start
 		// while transcription/transformation are in progress
 		await processRecordingPipeline({
@@ -227,13 +209,6 @@ const startVadRecording = defineMutation({
 					});
 					console.info('Voice activated speech captured');
 					sound.playSoundIfEnabled.execute('vad-capture');
-
-					// Log VAD recording completion
-					rpc.analytics.logEvent.execute({
-						type: 'vad_recording_completed',
-						blob_size: blob.size,
-						// VAD doesn't track duration by default
-					});
 
 					await processRecordingPipeline({
 						blob,
@@ -404,8 +379,6 @@ export const commands = {
 				}
 				case 'cancelled': {
 					// Session cleanup is now handled internally by the recorder service
-					// Reset start time if recording was cancelled
-					manualRecordingStartTime = null;
 					notify.success.execute({
 						id: toastId,
 						title: '✅ All Done!',
@@ -471,12 +444,6 @@ export const commands = {
 				validFiles.map(async (file) => {
 					const arrayBuffer = await file.arrayBuffer();
 					const audioBlob = new Blob([arrayBuffer], { type: file.type });
-
-					// Log file upload event
-					rpc.analytics.logEvent.execute({
-						type: 'file_uploaded',
-						blob_size: audioBlob.size,
-					});
 
 					// Each file gets its own toast notification
 					const toastId = nanoid();

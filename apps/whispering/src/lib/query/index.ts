@@ -1,7 +1,6 @@
 // Import all query modules
 
 import { commands } from './actions';
-import { analytics } from './analytics';
 import { db } from './db';
 import { delivery } from './delivery';
 import { download } from './download';
@@ -22,7 +21,6 @@ import { tray } from './tray';
  */
 export const rpc = {
 	mouseShortcuts,
-	analytics,
 	text,
 	commands,
 	db,

@@ -83,7 +83,6 @@
     },
     "opener:allow-default-urls",
     "updater:default",
-    "aptabase:allow-track-event",
     "macos-permissions:default",
     "shell:default",
     {

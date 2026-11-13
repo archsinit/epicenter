@@ -10,6 +10,8 @@ on:
       - 'bun.lock'
       - 'scripts/verify-intel-app.sh'
       - 'scripts/test-intel-verification.sh'
+      - 'scripts/no-telemetry.test.ts'
+      - 'scripts/menu-bar.test.ts'
       - '.github/workflows/intel-macos.yml'
 
 permissions:
@@ -44,7 +46,7 @@ jobs:
       - name: Check frontend types
         run: bun run --cwd apps/whispering check
       - name: Test fork indicator, cleanup and input policies
-        run: bun test apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts
+        run: bun test scripts/no-telemetry.test.ts scripts/menu-bar.test.ts apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts
       - name: Build Intel Mac app
         working-directory: apps/whispering
         env:

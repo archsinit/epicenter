@@ -1,12 +1,12 @@
-use log::{info, warn};
+use log::warn;
 use tauri::Manager;
-use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_log::{Target, TargetKind};
 
 pub mod audio_meter;
 pub mod mouse_policy;
 pub mod mouse_shortcuts;
 pub mod indicator;
+pub mod menu_bar;
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, close_recording_session, enumerate_recording_devices,
@@ -124,17 +124,6 @@ pub async fn run() {
             let _ = (window, event);
         });
 
-    // Try to get APTABASE_KEY from environment, use empty string if not found
-    let aptabase_key = option_env!("APTABASE_KEY").unwrap_or("");
-
-    // Only add Aptabase plugin if key is not empty
-    if !aptabase_key.is_empty() {
-        info!("Aptabase analytics enabled");
-        builder = builder.plugin(tauri_plugin_aptabase::Builder::new(aptabase_key).build());
-    } else {
-        warn!("APTABASE_KEY not found, analytics disabled");
-    }
-
     builder = builder
         .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -149,6 +138,7 @@ pub async fn run() {
         // Fork updates are manual; do not initialize the upstream updater plugin.
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            menu_bar::create(app)?;
             indicator::create_window(app)?;
             Ok(())
         })
@@ -171,6 +161,7 @@ pub async fn run() {
     // Register command handlers (same for all platforms now)
     let builder = builder.invoke_handler(tauri::generate_handler![
         write_text,
+        menu_bar::set_tray_recording,
         indicator::set_indicator_state,
         indicator::get_indicator_state,
         mouse_shortcuts::configure_mouse_bindings,
@@ -207,20 +198,6 @@ pub async fn run() {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
-            }
-        }
-
-        // Only track events if Aptabase is enabled (key is not empty)
-        if !aptabase_key.is_empty() {
-            match event {
-                tauri::RunEvent::Exit { .. } => {
-                    let _ = handler.track_event("app_exited", None);
-                    handler.flush_events_blocking();
-                }
-                tauri::RunEvent::Ready { .. } => {
-                    let _ = handler.track_event("app_started", None);
-                }
-                _ => {}
             }
         }
     });
