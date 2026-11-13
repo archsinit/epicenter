@@ -38,6 +38,17 @@ test('entering processing retains a gradual face-to-gas morph', () => {
 	expect(next.head).toBeLessThan(1);
 });
 
+test('processing phase runs in the reversed direction and wraps continuously', () => {
+	const state = { wave: 0, processing: 1, head: 0, spin: 3 };
+	const next = advanceFormMotion(state, 'vortex', 40, false);
+	expect(next.spin).toBeLessThan(state.spin);
+	expect(next.spin).toBeGreaterThan(2.9);
+	const wrapped = advanceFormMotion({ ...state, spin: 0.001 }, 'vortex', 40, false);
+	expect(wrapped.spin).toBeGreaterThan(6);
+	expect(wrapped.spin).toBeLessThan(Math.PI * 2);
+	expect(advanceFormMotion(state, 'vortex', 0, false).spin).toBe(state.spin);
+});
+
 test('returning face is held back until the process swirl has stopped', () => {
 	let state = { wave: 0, processing: 1, head: 0, spin: 1.2 };
 	let revealed = false;

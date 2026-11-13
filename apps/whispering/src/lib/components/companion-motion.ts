@@ -49,6 +49,8 @@ export function advanceFormMotion(
 	const head = previous.head + ((reveal ? 1 : 0) - previous.head) * blend;
 	const t = Math.max(0, Math.min(1, (processing - 0.12) / 0.53));
 	const speed = t * t * (3 - 2 * t);
-	const spin = reduced ? previous.spin : (previous.spin + dt * 0.00052 * speed) % (Math.PI * 2);
+	// Reverse temporal rotation without mirroring the existing spiral or its emission.
+	const spin = reduced || speed === 0 || dt === 0 ? previous.spin
+		: (previous.spin - dt * 0.00052 * speed + Math.PI * 2) % (Math.PI * 2);
 	return { wave, processing, head, spin };
 }
