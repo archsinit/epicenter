@@ -2,6 +2,7 @@
 //! operations is gate -> slot. Joining a worker happens with neither lock held,
 //! so status remains readable and new capture is rejected during finalization.
 
+use super::audio_recovery::{self, RecoveryPreview};
 use super::capture_process::{CaptureProcessInfo, OwnedCaptureProcess};
 use super::control::CaptureGate;
 use super::storage::MeetingManifest;
@@ -9,10 +10,20 @@ use super::worker::{
     MeetingBackend, MeetingPhase, MeetingProgress, MeetingProgressReader, MeetingWorker,
 };
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+static RECOVERY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveredAudioCopy {
+    pub id: String,
+    pub preview: RecoveryPreview,
+}
 
 #[derive(Default)]
 struct Slot {
@@ -21,6 +32,8 @@ struct Slot {
     last: Option<MeetingProgress>,
     failure: Option<String>,
     finishing: bool,
+    maintenance: bool,
+    maintenance_error: Option<String>,
     exit_pending: bool,
     exit_ready: bool,
 }
@@ -47,6 +60,91 @@ impl MeetingController {
             ..Self::default()
         }
     }
+    /// Explicit synchronous filesystem action, for a background caller only.
+    /// IPC/UI confirmation is not exposed yet. The root must be native-owned;
+    /// no webview chooses a path, output ID, source type or timing.
+    pub fn recover_audio_copy(
+        &self,
+        root: &Path,
+        source_id: &str,
+    ) -> io::Result<RecoveredAudioCopy> {
+        self.with_maintenance(|| {
+            let plan = audio_recovery::inspect(root, source_id)?;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?;
+            let id = format!(
+                "recovered-{}-{}",
+                now.as_nanos(),
+                RECOVERY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            );
+            let preview = plan.reconstruct(&id)?;
+            Ok(RecoveredAudioCopy { id, preview })
+        })
+    }
+
+    /// No hardware or detached work may be created/returned by this operation.
+    /// Only synchronous local filesystem work and plain metadata results. The
+    /// gate/slot mutexes are never held across filesystem work.
+    fn with_maintenance<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        let token = {
+            let mut gate = self.capture_gate()?;
+            let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+            Self::reap(&mut gate, &mut slot);
+            if slot.worker.is_some() || slot.finishing || slot.maintenance || slot.failure.is_some()
+            {
+                return Err(io::Error::other(
+                    "Native recording/finalization ownership is not idle or verified",
+                ));
+            }
+            let token = gate.begin_maintenance()?;
+            slot.maintenance = true;
+            slot.maintenance_error = None;
+            token
+        };
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation))
+            .unwrap_or_else(|_| {
+                Err(io::Error::other(
+                    "Local audio recovery panicked; partial files were retained",
+                ))
+            });
+        let release = (|| -> io::Result<()> {
+            let mut gate = match self.capture_gate() {
+                Ok(gate) => gate,
+                Err(error) => {
+                    if let Ok(mut slot) = self.slot.lock() {
+                        slot.maintenance = false;
+                        slot.failure = Some(error.to_string());
+                    }
+                    return Err(error);
+                }
+            };
+            let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+            slot.maintenance = false;
+            slot.maintenance_error = outcome.as_ref().err().map(|error| error.to_string());
+            let released = gate.end_maintenance(&token);
+            if let Err(error) = &released {
+                slot.failure = Some(error.to_string());
+            }
+            released
+        })();
+        // Wake Quit even on poisoned admission/release failure, never label an
+        // unknown gate released and never cancel shutdown on late completion.
+        self.finalized.notify_all();
+        release?;
+        outcome
+    }
+
+    /// Filesystem failure is not capture failure. Quit checks this separately,
+    /// AFTER stopping inputs; an older failed copy must never suppress Stop.
+    pub fn maintenance_result(&self) -> io::Result<()> {
+        let slot = self.slot.lock().map_err(|_| poisoned())?;
+        match &slot.maintenance_error {
+            Some(error) => Err(io::Error::other(error.clone())),
+            None => Ok(()),
+        }
+    }
+
     pub fn spawn_ffmpeg(&self, command: &mut Command) -> io::Result<CaptureProcessInfo> {
         let mut gate = self.capture_gate()?;
         gate.ensure_ffmpeg_allowed()?;
@@ -185,7 +283,7 @@ impl MeetingController {
         if let Some(failure) = &slot.failure {
             return Err(io::Error::other(failure.clone()));
         }
-        if slot.finishing || slot.worker.is_some() {
+        if slot.finishing || slot.maintenance || slot.worker.is_some() {
             return Err(io::Error::other(
                 "A meeting is already active or finalizing",
             ));
@@ -260,7 +358,7 @@ impl MeetingController {
     pub fn stop_blocking(&self) -> io::Result<Option<MeetingProgress>> {
         let mut worker = {
             let mut slot = self.slot.lock().map_err(|_| poisoned())?;
-            while slot.finishing {
+            while slot.finishing || slot.maintenance {
                 slot = self.finalized.wait(slot).map_err(|_| poisoned())?;
             }
             if let Some(failure) = &slot.failure {
@@ -306,7 +404,12 @@ impl MeetingController {
         if slot.exit_pending {
             return Ok(ExitDecision::Wait);
         }
-        if slot.worker.is_none() && !slot.finishing && slot.failure.is_none() && !gate.has_ffmpeg()
+        if slot.worker.is_none()
+            && !slot.finishing
+            && !slot.maintenance
+            && slot.maintenance_error.is_none()
+            && slot.failure.is_none()
+            && !gate.has_ffmpeg()
         {
             return Ok(ExitDecision::Allow);
         }
@@ -319,6 +422,7 @@ impl MeetingController {
         slot.exit_pending = false;
         slot.exit_ready = quit;
         if !quit {
+            slot.maintenance_error = None; // explicit acknowledgement of partial filesystem work
             gate.cancel_shutdown();
         }
         Ok(())

@@ -511,6 +511,228 @@ fn timed_out_quit_keeps_admission_closed_even_after_late_native_completion() {
 }
 
 #[test]
+fn maintenance_scope_blocks_capture_but_not_status_and_quit_waits_for_late_completion() {
+    let fixture = Fixture::new();
+    let (entered, observing) = std::sync::mpsc::channel();
+    let (release, waiting) = std::sync::mpsc::channel();
+    let controller = Arc::clone(&fixture.controller);
+    let job = thread::spawn(move || {
+        controller.with_maintenance(|| {
+            entered.send(()).unwrap();
+            waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(42)
+        })
+    });
+    observing.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(fixture.controller.status().unwrap().is_none());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    assert!(fixture
+        .controller
+        .with_maintenance(|| -> io::Result<()> { panic!("duplicate job") })
+        .is_err());
+    let called = Arc::new(AtomicBool::new(false));
+    let would_call = Arc::clone(&called);
+    assert!(fixture
+        .controller
+        .start::<Backend, _>(
+            fixture.root.join("meetings"),
+            Fixture::manifest(),
+            move |_| {
+                would_call.store(true, Ordering::Release);
+                panic!("must not open a backend");
+            }
+        )
+        .is_err());
+    assert!(!called.load(Ordering::Acquire));
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Finalize
+    );
+    let controller = Arc::clone(&fixture.controller);
+    let finalizer = super::super::quit::QuitFinalizer::default();
+    let run = finalizer
+        .start(move || {
+            controller
+                .stop_blocking()
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+        .unwrap();
+    assert_eq!(
+        run.observe(Duration::ZERO).unwrap(),
+        super::super::quit::Observation::Pending
+    );
+    release.send(()).unwrap();
+    assert_eq!(job.join().unwrap().unwrap(), 42);
+    assert_eq!(
+        run.observe(Duration::from_secs(5)).unwrap(),
+        super::super::quit::Observation::Complete(Ok(()))
+    );
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Wait
+    );
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    fixture.controller.resolve_exit(false).unwrap();
+    let token = fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .unwrap();
+    fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .end_dictation(&token)
+        .unwrap();
+}
+#[test]
+fn filesystem_failure_or_panic_releases_only_maintenance_and_is_reported_for_quit() {
+    for panic_job in [false, true] {
+        let fixture = Fixture::new();
+        let result: io::Result<()> = fixture.controller.with_maintenance(|| {
+            if panic_job {
+                panic!("synthetic filesystem panic");
+            }
+            Err(io::Error::other("synthetic filesystem failure"))
+        });
+        assert!(result.is_err());
+        assert!(fixture.controller.maintenance_result().is_err());
+        let token = fixture
+            .controller
+            .capture_gate()
+            .unwrap()
+            .begin_dictation()
+            .unwrap();
+        fixture
+            .controller
+            .capture_gate()
+            .unwrap()
+            .end_dictation(&token)
+            .unwrap();
+        // A previous failed copy must not prevent a later actual meeting Stop.
+        fixture.start(None);
+        assert!(
+            fixture
+                .controller
+                .stop_blocking()
+                .unwrap()
+                .unwrap()
+                .cleanup_confirmed
+        );
+        assert_eq!(
+            fixture.controller.request_exit().unwrap(),
+            ExitDecision::Finalize
+        );
+        fixture.controller.resolve_exit(false).unwrap();
+        assert!(fixture.controller.maintenance_result().is_ok());
+    }
+}
+#[test]
+fn recovery_wrapper_has_native_id_and_never_opens_a_capture_factory() {
+    let fixture = Fixture::new();
+    fixture.start(None);
+    fixture.controller.stop_blocking().unwrap();
+    let source_before = std::fs::read(fixture.root.join("meetings/test/meeting.json")).unwrap();
+    let result = fixture
+        .controller
+        .recover_audio_copy(&fixture.root.join("meetings"), "test")
+        .unwrap();
+    assert!(result.id.starts_with("recovered-"));
+    assert_eq!(result.preview.source_id, "test");
+    let saved = SavedMeeting::load(&fixture.root.join("meetings"), &result.id).unwrap();
+    assert_eq!(
+        saved.manifest().status,
+        super::super::storage::MeetingStatus::Interrupted
+    );
+    assert!(saved.manifest().screenshots.is_empty());
+    assert_eq!(
+        std::fs::read(fixture.root.join("meetings/test/meeting.json")).unwrap(),
+        source_before
+    );
+    assert!(fixture.controller.active_meeting_id().unwrap().is_none());
+}
+#[test]
+fn startup_or_unknown_capture_rejects_maintenance_before_running_any_filesystem_work() {
+    let startup = MeetingController::awaiting_restore();
+    assert!(startup
+        .with_maintenance(|| -> io::Result<()> {
+            panic!("must not run");
+        })
+        .is_err());
+    let fixture = Fixture::new();
+    fixture.start(None);
+    assert!(fixture
+        .controller
+        .with_maintenance(|| -> io::Result<()> {
+            panic!("must not run");
+        })
+        .is_err());
+    fixture.controller.stop_blocking().unwrap();
+    fixture.controller.note_unverified_ffmpeg().unwrap();
+    assert!(fixture
+        .controller
+        .with_maintenance(|| -> io::Result<()> {
+            panic!("must not run");
+        })
+        .is_err());
+}
+#[test]
+fn poisoned_gate_after_filesystem_work_wakes_quit_waiters_without_releasing_unknown_admission() {
+    let fixture = Fixture::new();
+    let controller = Arc::clone(&fixture.controller);
+    let (finished, observing) = std::sync::mpsc::channel();
+    let mut waiter = None;
+    let result = fixture.controller.with_maintenance(|| {
+        let stopping = Arc::clone(&controller);
+        waiter = Some(thread::spawn(move || {
+            let result = stopping.stop_blocking();
+            finished.send(result.is_err()).unwrap();
+        }));
+        let poison = Arc::clone(&controller);
+        let _ = thread::spawn(move || {
+            let _gate = poison.capture_gate().unwrap();
+            panic!("synthetic admission poison");
+        })
+        .join();
+        Ok(())
+    });
+    assert!(result.is_err());
+    assert!(!fixture.controller.slot.lock().unwrap().maintenance);
+    assert!(observing.recv_timeout(Duration::from_secs(5)).unwrap());
+    waiter.unwrap().join().unwrap();
+    assert!(fixture.controller.capture_gate().is_err());
+    assert!(fixture.controller.stop_blocking().is_err());
+}
+#[test]
+fn unexpected_process_state_during_maintenance_is_not_silently_released() {
+    let fixture = Fixture::new();
+    let result = fixture.controller.with_maintenance(|| {
+        fixture.controller.note_unverified_ffmpeg()?;
+        Ok(())
+    });
+    assert!(result.is_err());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    assert!(fixture.controller.stop_blocking().is_err());
+}
+
+#[test]
 fn idle_exit_does_not_create_worker_or_touch_recording_files() {
     let fixture = Fixture::new();
     assert_eq!(

@@ -8,7 +8,12 @@ use std::io;
 enum Owner {
     Dictation(String),
     Meeting,
+    Maintenance(u64),
 }
+
+/// Native-only token; not serializable or constructible by the webview.
+#[derive(Debug)]
+pub(crate) struct MaintenanceToken(u64);
 
 #[derive(Default)]
 pub struct CaptureGate {
@@ -95,9 +100,37 @@ impl CaptureGate {
             self.owner = None;
         }
     }
+    pub(crate) fn begin_maintenance(&mut self) -> io::Result<MaintenanceToken> {
+        self.available()?;
+        if self.owner.is_some() || self.cpal_open || self.has_ffmpeg() {
+            return Err(io::Error::other(
+                "Stop and verify all capture before local audio recovery",
+            ));
+        }
+        self.sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("Capture token limit reached"))?;
+        self.owner = Some(Owner::Maintenance(self.sequence));
+        Ok(MaintenanceToken(self.sequence))
+    }
+    pub(crate) fn end_maintenance(&mut self, token: &MaintenanceToken) -> io::Result<()> {
+        if self.owner != Some(Owner::Maintenance(token.0)) {
+            return Err(io::Error::other(
+                "Maintenance token does not match active ownership",
+            ));
+        }
+        if self.cpal_open || self.has_ffmpeg() {
+            return Err(io::Error::other(
+                "Unexpected capture during maintenance; ownership remains quarantined",
+            ));
+        }
+        self.owner = None;
+        Ok(())
+    }
     pub fn ensure_cpal_allowed(&self) -> io::Result<()> {
         self.available()?;
-        if self.owner == Some(Owner::Meeting) || self.has_ffmpeg() {
+        if matches!(self.owner, Some(Owner::Meeting | Owner::Maintenance(_))) || self.has_ffmpeg() {
             return Err(io::Error::other(
                 "Stop the meeting before starting dictation",
             ));
@@ -106,7 +139,10 @@ impl CaptureGate {
     }
     pub fn ensure_ffmpeg_allowed(&self) -> io::Result<()> {
         self.available()?;
-        if self.owner == Some(Owner::Meeting) || self.cpal_open || self.has_ffmpeg() {
+        if matches!(self.owner, Some(Owner::Meeting | Owner::Maintenance(_)))
+            || self.cpal_open
+            || self.has_ffmpeg()
+        {
             return Err(io::Error::other(
                 "Stop the active capture before starting FFmpeg",
             ));
@@ -152,6 +188,68 @@ impl CaptureGate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn maintenance_is_exclusive_and_only_its_matching_token_can_release_it() {
+        let mut gate = CaptureGate::default();
+        let first = gate.begin_maintenance().unwrap();
+        assert!(gate.begin_meeting().is_err());
+        assert!(gate.begin_dictation().is_err());
+        assert!(gate.ensure_cpal_allowed().is_err());
+        assert!(gate.ensure_ffmpeg_allowed().is_err());
+        assert!(gate.begin_maintenance().is_err());
+        gate.end_meeting(); // unrelated/stale release cannot clear it
+        assert!(gate.end_dictation("dictation-1").is_err());
+        gate.end_maintenance(&first).unwrap();
+        let second = gate.begin_maintenance().unwrap();
+        assert!(gate.end_maintenance(&first).is_err());
+        assert!(gate.begin_dictation().is_err());
+        gate.begin_shutdown();
+        gate.end_maintenance(&second).unwrap();
+        assert!(gate.begin_dictation().is_err()); // late completion keeps Quit fence
+        gate.cancel_shutdown();
+        assert!(gate.begin_dictation().is_ok());
+    }
+    #[test]
+    fn maintenance_refuses_startup_unknown_input_resources_and_shutdown() {
+        let mut startup = CaptureGate::awaiting_restore();
+        assert!(startup.begin_maintenance().is_err());
+        startup.finish_startup_restore().unwrap();
+        let token = startup.begin_maintenance().unwrap();
+        startup.end_maintenance(&token).unwrap();
+        for kind in [
+            "dictation",
+            "meeting",
+            "cpal",
+            "ffmpeg",
+            "unknown",
+            "closing",
+        ] {
+            let mut gate = CaptureGate::default();
+            match kind {
+                "dictation" => {
+                    gate.begin_dictation().unwrap();
+                }
+                "meeting" => {
+                    gate.begin_meeting().unwrap();
+                }
+                "cpal" => gate.set_cpal_open(true),
+                "ffmpeg" => gate.set_ffmpeg_open(true),
+                "unknown" => gate.note_unverified_ffmpeg(),
+                _ => gate.begin_shutdown(),
+            }
+            assert!(gate.begin_maintenance().is_err(), "{kind}");
+        }
+    }
+    #[test]
+    fn maintenance_cannot_clear_unexpected_resource_or_unknown_process_flags() {
+        let mut gate = CaptureGate::default();
+        let token = gate.begin_maintenance().unwrap();
+        gate.note_unverified_ffmpeg();
+        assert!(gate.end_maintenance(&token).is_err());
+        assert!(gate.ensure_metadata_recovery_allowed().is_err());
+        assert!(gate.begin_dictation().is_err());
+        assert!(gate.finish_startup_restore().is_err());
+    }
     #[test]
     fn metadata_recovery_never_releases_quarantine_and_requires_unverified_state() {
         let mut gate = CaptureGate::awaiting_restore();

@@ -657,7 +657,14 @@ fn finalize_native_capture(handle: &tauri::AppHandle, state: &MeetingAppState) -
         Err(error) => Some(error.to_string()),
         _ => None,
     }
-    .or(process_failure);
+    .or(process_failure)
+    .or_else(|| {
+        state
+            .controller
+            .maintenance_result()
+            .err()
+            .map(|error| error.to_string())
+    });
     // Reflect verified closure even if Keep-open was chosen while the window
     // was hidden. This only updates the mark, never shutdown admission.
     sync_meeting_mark(handle, &state.controller);

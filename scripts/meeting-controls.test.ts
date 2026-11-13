@@ -168,6 +168,18 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
         // not crash a globally keyed list. Those IDs cannot dispatch reveal.
         expect(page).not.toContain('{#each library.data.entries as entry (entry.id)}');
     });
+	test('native maintenance owns filesystem lifetime and Quit reports failure after stopping inputs', () => {
+        const controller = readFileSync(new URL('meeting/controller.rs', root), 'utf8');
+        expect(controller).toContain('self.with_maintenance(||');
+        expect(controller).toContain('slot.maintenance = true');
+        expect(controller).toContain('while slot.finishing || slot.maintenance');
+        expect(controller).toContain('gate.end_maintenance(&token)');
+        expect(controller).toContain('catch_unwind');
+        const cleanup = commands.slice(commands.indexOf('fn finalize_native_capture('));
+        expect(cleanup.indexOf('controller.stop_blocking()')).toBeLessThan(cleanup.indexOf('maintenance_result()'));
+        expect(cleanup).toContain('maintenance_result()');
+        expect(commands).not.toContain('recover_audio_copy('); // not yet exposed without user confirmation
+    });
 	test('audio recovery is a local copy engine, unexposed until maintenance admission and confirmation exist', () => {
         const engine = readFileSync(new URL('meeting/audio_recovery.rs', root), 'utf8');
         for (const unsafe of ['remove_file(', 'remove_dir(', 'MacMeetingBackend', 'request_permission(', 'reqwest', 'open_screenshot_for_local_preview(', 'open_audio_for_transcription('])
