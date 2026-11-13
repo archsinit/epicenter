@@ -115,6 +115,34 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(page).not.toContain('meeting_start');
 		expect(page).not.toContain('transcribeRecordings');
 	});
+	test('meeting UI uses explicit mutations and native progress, never page-mount capture or frontend screenshot timers', () => {
+		const controls = readFileSync(new URL('../meetings/controls.ts', clientRoot), 'utf8');
+		const query = readFileSync(new URL('../../query/meeting-controls.ts', clientRoot), 'utf8');
+		const page = readFileSync(new URL('../apps/whispering/src/routes/(app)/(config)/meetings/MeetingRecorder.svelte', import.meta.url), 'utf8');
+		expect(page).toContain('formatMeetingOffset(progress.elapsedMs)');
+		expect(page).toContain('onclick={() => sources.mutate()}');
+		expect(page).toContain("permission.mutate('microphone'");
+		expect(page).toContain("permission.mutate('screen'");
+		expect(page).toContain('start.mutate(params,');
+		expect(page).toContain('stop.mutate()');
+		expect(page).toContain('capture.mutate()');
+		expect(page).toContain('pause.mutate(!progress.screenshotsPaused)');
+		expect(page).toContain('onSuccess: () => { confirmed = false; }');
+		for (const unsafe of ['setInterval(', 'setTimeout(', 'onMount(', 'settings.update', 'transcribeRecordings', 'getUserMedia('])
+			expect(page).not.toContain(unsafe);
+		for (const unsafe of ['fetch(', '/transcription', '/clipboard', 'setInterval(', 'setTimeout('])
+			expect(controls).not.toContain(unsafe);
+		const status = query.slice(query.indexOf('status: defineQuery'), query.indexOf('loadSources: defineMutation'));
+		expect(status).toContain('await service.getStatus()');
+		expect(status).not.toContain('service.start(');
+		expect(status).not.toContain('service.requestPermission(');
+		const controller = readFileSync(new URL('meeting/controller.rs', root), 'utf8');
+		expect(controller).toContain('if !progress.cleanup_confirmed');
+		expect(controller).toContain('progress.capture_reserved = false');
+		expect(command('meeting_stop')).toContain('controller.stop_blocking()');
+		expect(command('meeting_start')).toContain('menu_bar::meeting_transition');
+		expect(command('meeting_status')).toContain('sync_meeting_mark(');
+	});
 	test('Quit interception covers ExitRequested rather than only tray actions', () => {
 		expect(app).toContain('RunEvent::ExitRequested { api, .. }');
 		expect(app).toContain('meeting_commands::handle_exit(handler, api)');

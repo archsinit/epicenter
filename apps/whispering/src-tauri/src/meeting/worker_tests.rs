@@ -104,6 +104,37 @@ fn wait_for(mut condition: impl FnMut() -> bool) {
         thread::sleep(Duration::from_millis(2));
     }
 }
+#[test]
+fn stop_is_delivered_even_if_progress_cannot_be_read() {
+    let root = root();
+    let control = Control::new();
+    control.packet(AudioSource::Microphone, 0, vec![0.1; 48]);
+    let backend_control = control.clone();
+    let mut worker = MeetingWorker::spawn(
+        root.join("meetings"),
+        manifest(MeetingMode::Microphone),
+        move |_| Ok(FakeBackend(backend_control)),
+    )
+    .unwrap();
+    wait_for(|| {
+        worker
+            .progress()
+            .is_ok_and(|p| p.phase == MeetingPhase::Recording)
+    });
+    let progress = worker.progress.clone();
+    assert!(std::thread::spawn(move || {
+        let _held = progress.lock().unwrap();
+        panic!("synthetic progress poison");
+    })
+    .join()
+    .is_err());
+    worker.request_stop().unwrap();
+    wait_for(|| control.stopped.load(Ordering::Acquire));
+    assert!(worker.finish().is_err()); // no false acknowledgement from poisoned state
+    assert!(root.join("meetings/test/meeting.json").is_file());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 impl Fixture {
     fn new() -> Self {
         let root = root();
@@ -113,7 +144,7 @@ impl Fixture {
             manifest(MeetingMode::SystemAndMicrophone),
         )
         .unwrap();
-        let progress = Arc::new(Mutex::new(MeetingProgress::new("test".into())));
+        let progress = Arc::new(Mutex::new(MeetingProgress::new(store.manifest())));
         let engine = Engine::new(store, FakeBackend(control.clone()), progress).unwrap();
         Self {
             root,

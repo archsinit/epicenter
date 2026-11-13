@@ -97,19 +97,25 @@ impl MeetingBackend for MacMeetingBackend {
                 failures.push(error.to_string());
             }
         }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(io::Error::other(failures.join("; ")))
+        }
+    }
+    fn stopped_integrity(&self) -> io::Result<()> {
         let losses = self.microphone.dropped_packets()
             + self
                 .system
                 .as_ref()
                 .map(|input| input.dropped_packets())
                 .unwrap_or(0);
-        if losses != 0 {
-            failures.push(format!("{losses} audio packets were lost"));
-        }
-        if failures.is_empty() {
+        if losses == 0 {
             Ok(())
         } else {
-            Err(io::Error::other(failures.join("; ")))
+            Err(io::Error::other(format!(
+                "{losses} audio packets were lost"
+            )))
         }
     }
     fn screenshot_job(&self, display_id: u32) -> ScreenshotJob {

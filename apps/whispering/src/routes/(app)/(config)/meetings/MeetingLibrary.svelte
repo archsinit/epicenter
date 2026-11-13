@@ -25,8 +25,8 @@
 	<header class="space-y-2">
 		<h1 class="text-2xl font-semibold">Meetings</h1>
 		<p class="text-muted-foreground">
-			Local library preview. Recording controls, unfinished-audio reconstruction and
-			explicit transcription are still under development. Nothing starts recording here.
+			Saved local meetings. Unfinished-audio reconstruction and explicit transcription
+			are still under development. Browsing this library does not start recording.
 			Screenshots stay local and are never sent to a transcription provider or LLM.
 		</p>
 		<p class="text-sm text-muted-foreground">Retained source plus mixed WAVs use approximately 1 GB/hour for dual-source meetings or 0.7 GB/hour for microphone-only, excluding screenshots.</p>

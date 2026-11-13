@@ -16,12 +16,23 @@ test('native startup owns the tray before hiding the Dock icon', () => {
 });
 
 test('recording updates restore the template flag on each replacement image', () => {
-	const update = native.slice(native.indexOf('pub fn set_tray_recording'));
+	const update = native.slice(native.indexOf('fn refresh_capture_mark'), native.indexOf('pub(crate) fn meeting_transition'));
 	expect(update).toContain('tray.set_icon_as_template(true)');
 	expect(update.indexOf('tray.set_icon(Some(')).toBeLessThan(update.indexOf('tray.set_icon_as_template(true)'));
 	expect(update.indexOf('tray.set_icon_as_template(true)')).toBeLessThan(update.indexOf('tray.set_tooltip'));
 });
 
+test('native meeting state cannot be cleared by a frontend dictation-idle update', () => {
+	const dictation = native.slice(native.indexOf('pub fn set_tray_recording'), native.indexOf('#[cfg(test)]'));
+	expect(dictation).toContain('marks.dictation.store(recording');
+	expect(dictation).not.toContain('marks.meeting.store');
+	const refresh = native.slice(native.indexOf('fn refresh_capture_mark'), native.indexOf('pub(crate) fn meeting_transition'));
+	expect(refresh).toContain('run_on_main_thread');
+	expect(refresh).toContain('recording_mark(marks.dictation.load');
+	const synchronize = native.slice(native.indexOf('pub(crate) fn sync_meeting_recording'), native.indexOf('#[tauri::command]', native.indexOf('pub(crate) fn sync_meeting_recording')));
+	expect(synchronize.indexOf('meeting_transition.try_lock()')).toBeLessThan(synchronize.indexOf('reserved()'));
+	expect(synchronize).toContain('TryLockError::WouldBlock');
+});
 test('menu provides recovery and explicit quit without targeting auxiliary windows', () => {
 	for (const action of ['tray-show', 'tray-settings', 'tray-quit']) {
 		expect(native).toContain(`"${action}" =>`);

@@ -213,10 +213,21 @@ pub async fn meeting_start(
                 .app_data_dir()
                 .map_err(|error| io::Error::other(error.to_string()))?;
             std::fs::create_dir_all(&parent)?;
-            controller.start(
-                parent.join("meetings"),
-                manifest,
-                crate::meeting::backend_macos::MacMeetingBackend::new,
+            crate::menu_bar::meeting_transition(
+                &app,
+                || {
+                    controller.start(
+                        parent.join("meetings"),
+                        manifest,
+                        crate::meeting::backend_macos::MacMeetingBackend::new,
+                    )
+                },
+                || {
+                    controller
+                        .active_meeting_id()
+                        .map(|id| id.is_some())
+                        .unwrap_or(true)
+                },
             )
         }
         #[cfg(not(target_os = "macos"))]
@@ -231,19 +242,38 @@ pub async fn meeting_start(
 pub async fn meeting_status(
     window: WebviewWindow,
     state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
 ) -> Result<Option<MeetingProgress>> {
     main_window(&window)?;
     let controller = state.controller.clone();
-    blocking(move || controller.status()).await
+    blocking(move || {
+        let result = controller.status();
+        sync_meeting_mark(&app, &controller);
+        result
+    })
+    .await
 }
 #[tauri::command]
 pub async fn meeting_stop(
     window: WebviewWindow,
     state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
 ) -> Result<Option<MeetingProgress>> {
     main_window(&window)?;
     let controller = state.controller.clone();
-    blocking(move || controller.request_stop()).await
+    blocking(move || {
+        crate::menu_bar::meeting_transition(
+            &app,
+            || controller.stop_blocking(),
+            || {
+                controller
+                    .active_meeting_id()
+                    .map(|id| id.is_some())
+                    .unwrap_or(true)
+            },
+        )
+    })
+    .await
 }
 #[tauri::command]
 pub async fn meeting_capture_now(
@@ -263,6 +293,17 @@ pub async fn meeting_pause_screenshots(
     main_window(&window)?;
     let controller = state.controller.clone();
     blocking(move || controller.pause_screenshots(paused)).await
+}
+
+fn sync_meeting_mark(app: &tauri::AppHandle, controller: &MeetingController) {
+    if let Err(error) = crate::menu_bar::sync_meeting_recording(app, || {
+        controller
+            .active_meeting_id()
+            .map(|id| id.is_some())
+            .unwrap_or(true)
+    }) {
+        log::warn!("Native meeting status mark could not update: {error}");
+    }
 }
 
 fn meeting_root(app: &tauri::AppHandle) -> io::Result<PathBuf> {

@@ -120,7 +120,15 @@ impl MeetingController {
         let previous = slot.reader.as_ref().and_then(|reader| reader.read().ok());
         slot.reader = None;
         match outcome {
-            Ok(progress) => {
+            Ok(mut progress) => {
+                if !progress.cleanup_confirmed {
+                    progress.capture_reserved = true;
+                    let failure = progress.error.clone().unwrap_or_else(|| "Native input cleanup was not confirmed; fully Quit and relaunch before recording again".into());
+                    slot.last = Some(progress);
+                    slot.failure = Some(failure.clone());
+                    return Err(io::Error::other(failure));
+                }
+                progress.capture_reserved = false;
                 slot.last = Some(progress.clone());
                 slot.failure = None;
                 gate.end_meeting();
@@ -153,6 +161,13 @@ impl MeetingController {
         if let Some(reader) = &slot.reader {
             return reader.read().map(Some);
         }
+        if slot.last.is_none() {
+            if let Some(failure) = &slot.failure {
+                return Err(io::Error::other(format!(
+                    "Capture ownership is unverified: {failure}"
+                )));
+            }
+        }
         Ok(slot.last.clone())
     }
     pub fn start<B: MeetingBackend, F>(
@@ -183,11 +198,13 @@ impl MeetingController {
                 return Err(error);
             }
         };
-        let progress = worker.progress()?;
+        // Transfer ownership before reading progress. A poisoned acknowledgement
+        // must not drop a possibly live worker and leave the slot looking idle.
         slot.reader = Some(worker.reader());
         slot.worker = Some(worker);
         slot.last = None;
-        Ok(progress)
+        Self::snapshot(&slot)?
+            .ok_or_else(|| io::Error::other("Meeting startup identity unavailable"))
     }
     pub fn status(&self) -> io::Result<Option<MeetingProgress>> {
         let mut gate = self.capture_gate()?;

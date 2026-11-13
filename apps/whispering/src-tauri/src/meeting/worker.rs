@@ -4,7 +4,7 @@
 use super::audio::{AudioPacket, AudioSource};
 use super::schedule::{CaptureOrigin, ScreenshotSchedule};
 use super::storage::{
-    AudioTrack, MeetingManifest, MeetingStore, PendingScreenshot, ScreenshotOrigin,
+    AudioTrack, MeetingManifest, MeetingMode, MeetingStore, PendingScreenshot, ScreenshotOrigin,
 };
 use super::timeline::{mix_tracks, SourceTimeline};
 use serde::Serialize;
@@ -31,6 +31,10 @@ pub trait MeetingBackend: 'static {
     fn check_health(&self) -> io::Result<()>;
     /// Stop both sources, even if one fails. Remaining queued PCM is drainable.
     fn stop(&mut self) -> io::Result<()>;
+    /// Data loss after drained Stop is not the same as unverified input closure.
+    fn stopped_integrity(&self) -> io::Result<()> {
+        Ok(())
+    }
     fn screenshot_job(&self, display_id: u32) -> ScreenshotJob;
 }
 
@@ -54,6 +58,13 @@ impl MeetingPhase {
 #[serde(rename_all = "camelCase")]
 pub struct MeetingProgress {
     pub id: String,
+    pub title: String,
+    pub mode: MeetingMode,
+    pub microphone_id: String,
+    pub display_id: Option<u32>,
+    /// Only the application controller clears this after joining the worker.
+    pub capture_reserved: bool,
+    pub cleanup_confirmed: bool,
     pub phase: MeetingPhase,
     pub elapsed_ms: u64,
     pub audio_chunks: usize,
@@ -64,9 +75,15 @@ pub struct MeetingProgress {
     pub error: Option<String>,
 }
 impl MeetingProgress {
-    fn new(id: String) -> Self {
+    fn new(manifest: &MeetingManifest) -> Self {
         Self {
-            id,
+            id: manifest.id.clone(),
+            title: manifest.title.clone(),
+            mode: manifest.mode.clone(),
+            microphone_id: manifest.microphone_id.clone(),
+            display_id: manifest.display_id,
+            capture_reserved: true,
+            cleanup_confirmed: true, // no backend has been constructed yet
             phase: MeetingPhase::Starting,
             elapsed_ms: 0,
             audio_chunks: 0,
@@ -113,7 +130,7 @@ impl MeetingWorker {
     where
         F: FnOnce(&MeetingManifest) -> io::Result<B> + Send + 'static,
     {
-        let progress = Arc::new(Mutex::new(MeetingProgress::new(manifest.id.clone())));
+        let progress = Arc::new(Mutex::new(MeetingProgress::new(&manifest)));
         let shared = progress.clone();
         let (commands, receiver) = mpsc::sync_channel(16);
         let thread = thread::Builder::new()
@@ -121,6 +138,10 @@ impl MeetingWorker {
             .spawn(move || {
                 let result: io::Result<()> = (|| {
                     let mut store = MeetingStore::create(&root, manifest)?;
+                    shared
+                        .lock()
+                        .map_err(|_| io::Error::other("Meeting state unavailable"))?
+                        .cleanup_confirmed = false;
                     let backend = match factory(store.manifest()) {
                         Ok(backend) => backend,
                         Err(error) => {
@@ -206,10 +227,16 @@ impl MeetingWorker {
         self.send(Command::PauseScreenshots(paused))
     }
     pub fn request_stop(&self) -> io::Result<()> {
-        if self.progress()?.phase.terminal() {
+        if self.progress().is_ok_and(|p| {
+            p.phase.terminal() || matches!(p.phase, MeetingPhase::Stopping | MeetingPhase::Mixing)
+        }) {
             return Ok(());
         }
-        self.send(Command::Stop)
+        // Progress corruption must never prevent a best-effort Stop message to
+        // this owned worker. Closure is still unverified until finish/join.
+        self.commands
+            .try_send(Command::Stop)
+            .map_err(|_| io::Error::other("Meeting worker is busy or unavailable"))
     }
     /// Blocking finalization. Invoke from an IPC blocking task, never AppKit's
     /// main thread. Stop drains audio and the pending screenshot before mixing.
@@ -290,8 +317,9 @@ impl<B: MeetingBackend> Engine<B> {
         if backend.now_ns() < epoch_ns {
             return Err(io::Error::other("Invalid audio host clock"));
         }
-        let mut progress = MeetingProgress::new(store.manifest().id.clone());
+        let mut progress = MeetingProgress::new(store.manifest());
         progress.phase = MeetingPhase::Recording;
+        progress.cleanup_confirmed = false;
         let engine = Self {
             backend,
             store,
@@ -498,7 +526,14 @@ impl<B: MeetingBackend> Engine<B> {
         if let Err(error) = self.backend.check_health() {
             errors.push(error.to_string());
         }
-        if let Err(error) = self.backend.stop() {
+        match self.backend.stop() {
+            Ok(()) => self.progress.cleanup_confirmed = true,
+            Err(error) => {
+                self.progress.cleanup_confirmed = false;
+                errors.push(format!("Native input closure is unverified: {error}"));
+            }
+        }
+        if let Err(error) = self.backend.stopped_integrity() {
             errors.push(error.to_string());
         }
         let mut source_error = false;

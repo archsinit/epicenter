@@ -12,6 +12,8 @@ struct Backend {
     sent: bool,
     stopped: Arc<AtomicBool>,
     gate: Option<std::sync::mpsc::Receiver<()>>,
+    stop_error: bool,
+    integrity_error: bool,
 }
 impl MeetingBackend for Backend {
     fn epoch_ns(&self) -> u64 {
@@ -36,10 +38,20 @@ impl MeetingBackend for Backend {
     }
     fn stop(&mut self) -> io::Result<()> {
         self.stopped.store(true, Ordering::Release);
+        if self.stop_error {
+            return Err(io::Error::other("fixture input did not confirm closure"));
+        }
         if let Some(gate) = self.gate.take() {
             gate.recv_timeout(Duration::from_secs(5)).unwrap();
         }
         Ok(())
+    }
+    fn stopped_integrity(&self) -> io::Result<()> {
+        if self.integrity_error {
+            Err(io::Error::other("fixture final packet loss"))
+        } else {
+            Ok(())
+        }
     }
     fn screenshot_job(&self, _: u32) -> ScreenshotJob {
         Box::new(|| Err(io::Error::other("No screenshots in this fixture")))
@@ -82,6 +94,8 @@ impl Fixture {
                     sent: false,
                     stopped,
                     gate,
+                    stop_error: false,
+                    integrity_error: false,
                 })
             })
             .unwrap();
@@ -448,7 +462,31 @@ fn poisoned_admission_after_join_does_not_leave_finalizer_waiters_hanging() {
 }
 
 #[test]
-fn failed_start_is_reaped_and_does_not_leave_a_permanent_capture_lease() {
+fn unidentified_failure_is_not_reported_as_idle_or_a_successful_stop() {
+    let fixture = Fixture::new();
+    fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_meeting()
+        .unwrap();
+    fixture.controller.slot.lock().unwrap().failure = Some("unknown worker identity".into());
+    assert!(fixture.controller.status().is_err());
+    assert!(fixture.controller.request_stop().is_err());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Finalize
+    );
+}
+
+#[test]
+fn failed_factory_without_cleanup_evidence_keeps_capture_reserved() {
     let fixture = Fixture::new();
     fixture
         .controller
@@ -465,12 +503,112 @@ fn failed_start_is_reaped_and_does_not_leave_a_permanent_capture_lease() {
             .unwrap()
             .is_some_and(|progress| progress.phase == MeetingPhase::Failed)
     });
+    let progress = fixture.controller.status().unwrap().unwrap();
+    assert!(progress.capture_reserved);
+    assert!(!progress.cleanup_confirmed);
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    assert!(fixture.controller.stop_blocking().is_err());
+}
+
+#[test]
+fn stop_failure_retains_capture_even_after_worker_join_but_metadata_is_available() {
+    let fixture = Fixture::new();
+    let stopped = fixture.stopped.clone();
+    fixture
+        .controller
+        .start(
+            fixture.root.join("meetings"),
+            Fixture::manifest(),
+            move |_| {
+                Ok(Backend {
+                    sent: false,
+                    stopped,
+                    gate: None,
+                    stop_error: true,
+                    integrity_error: false,
+                })
+            },
+        )
+        .unwrap();
+    assert!(fixture.controller.stop_blocking().is_err());
+    let progress = fixture.controller.status().unwrap().unwrap();
+    assert!(progress.capture_reserved);
+    assert!(!progress.cleanup_confirmed);
+    assert_eq!(
+        fixture.controller.active_meeting_id().unwrap().as_deref(),
+        Some("test")
+    );
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    assert!(fixture.root.join("meetings/test/meeting.json").is_file());
+}
+
+#[test]
+fn integrity_loss_after_confirmed_stop_is_incomplete_but_not_unknown_capture() {
+    let fixture = Fixture::new();
+    let stopped = fixture.stopped.clone();
+    let initial = fixture
+        .controller
+        .start(
+            fixture.root.join("meetings"),
+            Fixture::manifest(),
+            move |_| {
+                Ok(Backend {
+                    sent: false,
+                    stopped,
+                    gate: None,
+                    stop_error: false,
+                    integrity_error: true,
+                })
+            },
+        )
+        .unwrap();
+    assert!(initial.capture_reserved);
+    assert_eq!(initial.title, "test");
+    assert_eq!(initial.microphone_id, "fixture");
+    let final_state = fixture.controller.stop_blocking().unwrap().unwrap();
+    assert_eq!(final_state.phase, MeetingPhase::Interrupted);
+    assert!(final_state.cleanup_confirmed);
+    assert!(!final_state.capture_reserved);
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_ok());
+}
+
+#[test]
+fn storage_failure_before_factory_proves_no_input_was_opened_and_releases_capture() {
+    let fixture = Fixture::new();
+    let blocked = fixture.root.join("not-a-directory");
+    std::fs::write(&blocked, b"fixture").unwrap();
+    fixture
+        .controller
+        .start(blocked, Fixture::manifest(), |_| -> io::Result<Backend> {
+            panic!("Storage failed before any factory call");
+        })
+        .unwrap();
     wait_for(|| {
         fixture
             .controller
-            .capture_gate()
+            .status()
             .unwrap()
-            .begin_dictation()
-            .is_ok()
+            .is_some_and(|p| p.phase == MeetingPhase::Failed && !p.capture_reserved)
     });
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_ok());
 }

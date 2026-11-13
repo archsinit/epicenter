@@ -7,6 +7,17 @@ use tauri::{
 };
 
 const TRAY_ID: &str = "whispering-tray";
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[derive(Default)]
+struct CaptureMarks {
+    dictation: AtomicBool,
+    meeting: AtomicBool,
+    meeting_transition: std::sync::Mutex<()>,
+}
+fn recording_mark(dictation: bool, meeting: bool) -> bool {
+    dictation || meeting
+}
 
 // Monochrome alpha mask; macOS templates adapt to light and dark menu bars.
 fn microphone_icon(recording: bool) -> Image<'static> {
@@ -39,6 +50,7 @@ fn show_main(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 pub fn create(app: &mut tauri::App) -> tauri::Result<()> {
+    app.manage(CaptureMarks::default());
     let show = MenuItem::with_id(app, "tray-show", "Show Window", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "tray-settings", "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(
@@ -83,27 +95,114 @@ pub fn create(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn refresh_capture_mark(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.tray_by_id(TRAY_ID).is_none() {
+        return Err("Menu-bar icon unavailable".into());
+    }
+    let handle = app.clone();
+    // Compute the union on the main thread, not before queueing. Out-of-order
+    // frontend idle updates cannot clear a native meeting mark. No state/gate
+    // mutex is held while waiting for UI dispatch.
+    app.run_on_main_thread(move || {
+        let marks = handle.state::<CaptureMarks>();
+        let meeting = marks.meeting.load(Ordering::Acquire);
+        let recording = recording_mark(marks.dictation.load(Ordering::Acquire), meeting);
+        let result = (|| -> Result<(), String> {
+            let tray = handle
+                .tray_by_id(TRAY_ID)
+                .ok_or("Menu-bar icon unavailable")?;
+            tray.set_icon(Some(microphone_icon(recording)))
+                .map_err(|error| error.to_string())?;
+            // Reapply template tint after EVERY replacement.
+            #[cfg(target_os = "macos")]
+            tray.set_icon_as_template(true)
+                .map_err(|error| error.to_string())?;
+            tray.set_tooltip(Some(if meeting {
+                "Whispering Intel — Meeting recording / finalizing"
+            } else if recording {
+                "Whispering Intel — Recording"
+            } else {
+                "Whispering Intel"
+            }))
+            .map_err(|error| error.to_string())
+        })();
+        if let Err(error) = result {
+            log::warn!("Menu-bar capture status could not update: {error}");
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn meeting_transition<T>(
+    app: &tauri::AppHandle,
+    operation: impl FnOnce() -> std::io::Result<T>,
+    reserved: impl FnOnce() -> bool,
+) -> std::io::Result<T> {
+    let marks = app
+        .try_state::<CaptureMarks>()
+        .ok_or_else(|| std::io::Error::other("Menu-bar state unavailable"))?;
+    let _transition = marks.meeting_transition.try_lock().map_err(|_| {
+        std::io::Error::other("A native meeting transition is pending or unverified")
+    })?;
+    marks.meeting.store(true, Ordering::Release);
+    refresh_capture_mark(app).map_err(std::io::Error::other)?;
+    let result = operation();
+    marks.meeting.store(reserved(), Ordering::Release);
+    if let Err(error) = refresh_capture_mark(app) {
+        log::warn!("Native meeting mark could not update: {error}");
+    }
+    result
+}
+
+pub(crate) fn sync_meeting_recording(
+    app: &tauri::AppHandle,
+    reserved: impl FnOnce() -> bool,
+) -> Result<(), String> {
+    let marks = app
+        .try_state::<CaptureMarks>()
+        .ok_or("Menu-bar state unavailable")?;
+    let _transition = match marks.meeting_transition.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
+        Err(_) => return Err("Native meeting mark state is unverified".into()),
+    };
+    // Snapshot AND store under the same transition lock used by Start/Stop.
+    // A status read from before Start cannot clear a later recording mark.
+    marks.meeting.store(reserved(), Ordering::Release);
+    refresh_capture_mark(app)
+}
 #[tauri::command]
 pub fn set_tray_recording(recording: bool, app: tauri::AppHandle) -> Result<(), String> {
-    let tray = app.tray_by_id(TRAY_ID).ok_or("Menu-bar icon unavailable")?;
-    tray.set_icon(Some(microphone_icon(recording)))
-        .map_err(|error| error.to_string())?;
-    // tray-icon's macOS set_icon creates a fresh NSImage with template=false.
-    // Reapply after EVERY replacement so AppKit tints it for the actual menu bar.
-    #[cfg(target_os = "macos")]
-    tray.set_icon_as_template(true)
-        .map_err(|error| error.to_string())?;
-    tray.set_tooltip(Some(if recording {
-        "Whispering Intel — Recording"
-    } else {
-        "Whispering Intel"
-    }))
-    .map_err(|error| error.to_string())
+    let marks = app
+        .try_state::<CaptureMarks>()
+        .ok_or("Menu-bar state unavailable")?;
+    marks.dictation.store(recording, Ordering::Release);
+    refresh_capture_mark(&app)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dictation_idle_never_clears_a_native_meeting_mark() {
+        assert!(recording_mark(false, true));
+        assert!(recording_mark(true, false));
+        assert!(recording_mark(true, true));
+        assert!(!recording_mark(false, false));
+    }
+
+    #[test]
+    fn a_status_snapshot_cannot_overwrite_an_in_progress_native_transition() {
+        let marks = CaptureMarks::default();
+        let _start = marks.meeting_transition.lock().unwrap();
+        marks.meeting.store(true, Ordering::Release);
+        assert!(matches!(
+            marks.meeting_transition.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+        assert!(recording_mark(false, marks.meeting.load(Ordering::Acquire)));
+    }
 
     #[test]
     fn template_icon_is_visible_with_transparent_background() {
