@@ -422,12 +422,94 @@ fn every_quit_route_closes_admission_and_waits_for_one_finalizer() {
         .begin_dictation()
         .is_err());
     fixture.controller.stop_blocking().unwrap();
+    // Finishing after a monitor deadline must neither bypass the unresolved
+    // user decision nor reopen admission. Repeated Quit re-enters monitoring.
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Wait
+    );
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
     fixture.controller.resolve_exit(true).unwrap();
     assert_eq!(
         fixture.controller.request_exit().unwrap(),
         ExitDecision::Allow
     );
 }
+#[test]
+fn timed_out_quit_keeps_admission_closed_even_after_late_native_completion() {
+    use super::super::quit::{Observation, QuitFinalizer};
+    let fixture = Fixture::new();
+    let (release, waiting) = std::sync::mpsc::channel();
+    fixture.start(Some(waiting));
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Finalize
+    );
+    let controller = Arc::clone(&fixture.controller);
+    let jobs = QuitFinalizer::default();
+    let run = jobs
+        .start(move || {
+            controller
+                .stop_blocking()
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+        .unwrap();
+    assert_eq!(run.observe(Duration::ZERO).unwrap(), Observation::Pending);
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Wait
+    );
+    assert!(Arc::ptr_eq(
+        &run,
+        &jobs.start(|| panic!("duplicate Stop")).unwrap()
+    ));
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    release.send(()).unwrap();
+    assert_eq!(
+        run.observe(Duration::from_secs(5)).unwrap(),
+        Observation::Complete(Ok(()))
+    );
+    assert!(fixture.controller.active_meeting_id().unwrap().is_none());
+    // Late completion is not user approval or cancellation. It neither exits
+    // nor lets a newer recorder race against delayed cleanup.
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Wait
+    );
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    // Simulate Keep-open chosen AFTER completion while the timeout dialog is
+    // still visible: the monitor may now explicitly cancel shutdown admission.
+    fixture.controller.resolve_exit(false).unwrap();
+    let token = fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .unwrap();
+    fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .end_dictation(&token)
+        .unwrap();
+}
+
 #[test]
 fn idle_exit_does_not_create_worker_or_touch_recording_files() {
     let fixture = Fixture::new();

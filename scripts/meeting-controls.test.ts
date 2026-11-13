@@ -143,6 +143,28 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(command('meeting_start')).toContain('menu_bar::meeting_transition');
 		expect(command('meeting_status')).toContain('sync_meeting_mark(');
 	});
+	test('bounded Quit observes one cleanup job without late auto-exit or admission release', () => {
+        const monitor = commands.slice(commands.indexOf('pub fn handle_exit('), commands.indexOf('fn finalize_native_capture('));
+        const cleanup = commands.slice(commands.indexOf('fn finalize_native_capture('));
+        expect(monitor).toContain('run.observe(Duration::from_secs(20))');
+        expect(monitor).toContain('Observation::Pending');
+        expect(monitor).toContain('if quit || completed');
+        expect(monitor).toContain('capture admission stays closed until full Quit/relaunch');
+        expect(monitor).toContain('Quit again to retry this confirmation');
+        expect(monitor).toContain('ExitMonitorGuard(');
+        expect(monitor.indexOf('if state.exit_task.load')).toBeLessThan(monitor.indexOf('controller.request_exit()'));
+        expect(cleanup).toContain('sync_meeting_mark(handle, &state.controller)');
+        for (const unsafe of ['.exit(', 'resolve_exit(', '.dialog()', 'exit_approved.store', 'cancel_shutdown('])
+            expect(cleanup).not.toContain(unsafe);
+        expect(cleanup).toContain('controller.stop_blocking()');
+        expect(cleanup).toContain('stop_owned_ffmpeg(');
+        expect(monitor).not.toContain('controller.stop_blocking()');
+        const job = readFileSync(new URL('meeting/quit.rs', root), 'utf8');
+        for (const unsafe of ['.exit(', 'resolve_exit(', '.kill(', 'remove_file(', 'begin_meeting(', 'end_meeting('])
+            expect(job).not.toContain(unsafe);
+        expect(job).toContain('if !run.is_complete()?');
+        expect(job).toContain('catch_unwind');
+    });
 	test('Quit interception covers ExitRequested rather than only tray actions', () => {
 		expect(app).toContain('RunEvent::ExitRequested { api, .. }');
 		expect(app).toContain('meeting_commands::handle_exit(handler, api)');

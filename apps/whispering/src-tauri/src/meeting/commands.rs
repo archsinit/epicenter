@@ -2,6 +2,7 @@
 //! module tree so core tests need no Tauri runtime or platform capture access.
 use crate::meeting::capture_process::{read_exit_receipt, write_exit_receipt, CaptureProcessInfo};
 use crate::meeting::controller::{ExitDecision, MeetingController};
+use crate::meeting::quit::{Completion, Observation, QuitFinalizer};
 use crate::meeting::request::StartMeetingParams;
 use crate::meeting::sources::CaptureSources;
 use crate::meeting::worker::{MeetingPhase, MeetingProgress};
@@ -19,6 +20,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 pub struct MeetingAppState {
     pub controller: Arc<MeetingController>,
     exit_task: Arc<AtomicBool>,
+    quit_finalizer: Arc<QuitFinalizer>,
     exit_approved: Arc<AtomicBool>,
 }
 impl Default for MeetingAppState {
@@ -30,6 +32,7 @@ impl Default for MeetingAppState {
         Self {
             controller: Arc::new(controller),
             exit_task: Arc::new(AtomicBool::new(false)),
+            quit_finalizer: Arc::new(QuitFinalizer::default()),
             exit_approved: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -510,6 +513,15 @@ pub async fn capture_ffmpeg_restore(
     }).await
 }
 
+// A monitor panic must not permanently suppress later explicit Quit attempts.
+// Dropping this guard never releases capture/shutdown admission.
+struct ExitMonitorGuard(Arc<AtomicBool>);
+impl Drop for ExitMonitorGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 /// Intercept every normal ExitRequested route, not only the tray menu. No work
 /// is started on launch; with no meeting the existing exit behaviour is kept.
 pub fn handle_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
@@ -517,11 +529,19 @@ pub fn handle_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     if state.exit_approved.load(Ordering::Acquire) {
         return;
     }
+    // Do not mutate the exit decision while an earlier dialog/monitor is
+    // still resolving. In particular, don't leave a new pending Quit behind
+    // during the narrow Keep-open completion window.
+    if state.exit_task.load(Ordering::Acquire) {
+        api.prevent_exit();
+        return;
+    }
     match state.controller.request_exit() {
         Ok(ExitDecision::Allow) => return,
         Ok(ExitDecision::Wait) => {
             api.prevent_exit();
-            return;
+            // A previous timed-out monitor may have been dismissed. Repeated
+            // Quit observes the same pending cleanup, not another Stop job.
         }
         Ok(ExitDecision::Finalize) => api.prevent_exit(),
         Err(error) => {
@@ -534,31 +554,33 @@ pub fn handle_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     }
     let handle = app.clone();
     let finalizer_state = state.clone();
-    let spawned = std::thread::Builder::new().name("meeting-quit-finalizer".into()).spawn(move || {
-        let process_failure = (|| -> io::Result<()> {
-            if !finalizer_state.controller.capture_gate()?.has_ffmpeg() { return Ok(()); }
-            if let Some(id) = finalizer_state.controller.ffmpeg_id()? {
-                stop_owned_ffmpeg(&handle, &finalizer_state.controller, &id)?;
-            }
-            if finalizer_state.controller.capture_gate()?.has_ffmpeg() {
-                return Err(io::Error::other("An unverified FFmpeg session remains; no unknown PID was signalled"));
-            }
-            Ok(())
-        })().err().map(|error| error.to_string());
-        let failure = match finalizer_state.controller.stop_blocking() {
-            Ok(Some(progress)) if matches!(progress.phase, MeetingPhase::Interrupted | MeetingPhase::Failed) => Some(progress.error.unwrap_or_else(|| "Recording was marked incomplete".into())),
-            Err(error) => Some(error.to_string()),
-            _ => None,
-        }.or(process_failure);
+    let spawned = std::thread::Builder::new().name("meeting-quit-monitor".into()).spawn(move || {
+        let _monitor_guard = ExitMonitorGuard(Arc::clone(&finalizer_state.exit_task));
+        let cleanup_handle = handle.clone();
+        let cleanup_state = finalizer_state.clone();
+        let run = finalizer_state.quit_finalizer.start(move || {
+            finalize_native_capture(&cleanup_handle, &cleanup_state)
+        });
+        let observation = run.as_ref().map_err(|error| error.to_string())
+            .and_then(|run| run.observe(Duration::from_secs(20)).map_err(|error| error.to_string()));
+        let failure = match observation {
+            Ok(Observation::Complete(Ok(()))) => None,
+            Ok(Observation::Complete(Err(error))) | Err(error) => Some(error),
+            Ok(Observation::Pending) => Some("Native finalization has not finished within 20 seconds. It may still be waiting for a driver or mixing audio. The timeout does not stop the worker or prove capture has stopped.".into()),
+        };
         let quit = if let Some(error) = failure {
             log::warn!("Meeting finalization could not fully complete: {error}");
-            handle.dialog().message(format!("The recording could not be fully finalized. Local audio files have been kept for recovery. An input/process may still be active; keeping the app open is safer until its recorder is stopped.\n\n{error}\n\nQuit anyway?"))
+            handle.dialog().message(format!("The recording could not be fully finalized. Local audio files have been kept for recovery. An input/process may still be active; keeping the app open is safer until its recorder is stopped. If cleanup is still pending when you keep the app open, capture admission stays closed until full Quit/relaunch. Quit again to retry this confirmation; late completion will not close the app on its own.\n\n{error}\n\nQuit anyway?"))
                 .title("Meeting recording")
                 .buttons(MessageDialogButtons::OkCancelCustom("Quit anyway".into(), "Keep app open".into()))
                 .blocking_show()
         } else { true };
-        let _ = finalizer_state.controller.resolve_exit(quit);
-        finalizer_state.exit_task.store(false, Ordering::Release);
+        // Never reopen admission while delayed cleanup could still Stop a
+        // newer session. No cleanup-thread callback resolves/approves Exit.
+        let completed = run.as_ref().ok().is_some_and(|run| run.is_complete().unwrap_or(false));
+        if quit || completed {
+            let _ = finalizer_state.controller.resolve_exit(quit);
+        }
         if quit {
             finalizer_state.exit_approved.store(true, Ordering::Release);
             handle.exit(0);
@@ -566,7 +588,52 @@ pub fn handle_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     });
     if let Err(error) = spawned {
         state.exit_task.store(false, Ordering::Release);
-        let _ = state.controller.resolve_exit(false);
-        log::error!("Could not start meeting finalizer; application kept open: {error}");
+        // An older pending cleanup may exist. Leave shutdown admission fenced.
+        log::error!("Could not start Quit monitor; application kept open with capture admission closed: {error}");
+    }
+}
+
+/// Cleanup only. In particular, late completion cannot show a dialog, exit the
+/// application, cancel shutdown admission or clear an unverified input guard.
+fn finalize_native_capture(handle: &tauri::AppHandle, state: &MeetingAppState) -> Completion {
+    let process_failure = (|| -> io::Result<()> {
+        if !state.controller.capture_gate()?.has_ffmpeg() {
+            return Ok(());
+        }
+        if let Some(id) = state.controller.ffmpeg_id()? {
+            stop_owned_ffmpeg(handle, &state.controller, &id)?;
+        }
+        if state.controller.capture_gate()?.has_ffmpeg() {
+            return Err(io::Error::other(
+                "An unverified FFmpeg session remains; no unknown PID was signalled",
+            ));
+        }
+        Ok(())
+    })()
+    .err()
+    .map(|error| error.to_string());
+    let failure = match state.controller.stop_blocking() {
+        Ok(Some(progress))
+            if matches!(
+                progress.phase,
+                MeetingPhase::Interrupted | MeetingPhase::Failed
+            ) =>
+        {
+            Some(
+                progress
+                    .error
+                    .unwrap_or_else(|| "Recording was marked incomplete".into()),
+            )
+        }
+        Err(error) => Some(error.to_string()),
+        _ => None,
+    }
+    .or(process_failure);
+    // Reflect verified closure even if Keep-open was chosen while the window
+    // was hidden. This only updates the mark, never shutdown admission.
+    sync_meeting_mark(handle, &state.controller);
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }

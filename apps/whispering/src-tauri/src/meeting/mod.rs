@@ -10,6 +10,7 @@ pub mod controller;
 pub mod library;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod quit;
 pub mod recovery;
 pub mod request;
 pub mod schedule;

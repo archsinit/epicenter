@@ -300,12 +300,15 @@ impl MeetingController {
         }
         gate.begin_shutdown();
         Self::reap(&mut gate, &mut slot);
+        // Completion alone does not resolve a prior Quit decision. A declined
+        // timeout keeps admission closed, and a repeated Quit must return to
+        // the monitor even if the worker has since finished.
+        if slot.exit_pending {
+            return Ok(ExitDecision::Wait);
+        }
         if slot.worker.is_none() && !slot.finishing && slot.failure.is_none() && !gate.has_ffmpeg()
         {
             return Ok(ExitDecision::Allow);
-        }
-        if slot.exit_pending {
-            return Ok(ExitDecision::Wait);
         }
         slot.exit_pending = true;
         Ok(ExitDecision::Finalize)
