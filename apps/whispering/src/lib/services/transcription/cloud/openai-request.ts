@@ -41,22 +41,30 @@ type RequestOptions = {
 	temperature: string;
 };
 
-type TranscriptionRequest = OpenAI.Audio.TranscriptionCreateParamsNonStreaming<'json' | undefined> & {
+type TranscriptionRequest = OpenAI.Audio.TranscriptionCreateParamsNonStreaming<
+	'json' | undefined
+> & {
 	// Supported API field missing from SDK 5.23.2's generated request types.
 	languages?: string[];
 };
 
-export function buildOpenaiTranscriptionRequest(file: File, options: RequestOptions): TranscriptionRequest {
-	const languageHint = options.outputLanguage === 'auto'
-		? {}
-		: options.modelName === 'gpt-transcribe'
-			? { languages: [options.outputLanguage] }
-			: { language: options.outputLanguage };
+export function buildOpenaiTranscriptionRequest(
+	file: File,
+	options: RequestOptions,
+): TranscriptionRequest {
+	const languageHint =
+		options.outputLanguage === 'auto'
+			? {}
+			: options.modelName === 'gpt-transcribe'
+				? { languages: [options.outputLanguage] }
+				: { language: options.outputLanguage };
 	return {
 		file,
 		model: options.modelName,
 		...languageHint,
 		prompt: options.prompt || undefined,
-		temperature: options.temperature ? Number.parseFloat(options.temperature) : undefined,
+		temperature: options.temperature
+			? Number.parseFloat(options.temperature)
+			: undefined,
 	};
 }

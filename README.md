@@ -1,11 +1,19 @@
-# Whispering for Intel Mac
+# Whispering Intel
 
-A fork of [Whispering 7.10.0](https://github.com/EpicenterHQ/epicenter/tree/v7.10.0/apps/whispering).
+My personal Intel macOS fork of [Whispering](https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering), based on v7.10.0.
 
-This fork runs from the menu bar without a Dock icon, with a floating waveform and processing indicator, optional mouse shortcuts, a separate Enter shortcut, and an explicit LLM cleanup toggle. Usage telemetry is removed.
+All credit for the original app goes to Braden Wong and the Whispering contributors. This is just a fork with a few changes for how I like to use it, not a separate product or an official upstream release.
 
-Intel macOS only. We may add other platforms if there are requests.
+## What changed
 
-Menu-bar-only behaviour and telemetry removal are awaiting a new Intel Mac build and interactive validation. The [previous test build](https://github.com/archsinit/epicenter/actions/runs/43259930929/artifacts/13963969603) predates those changes. Ad-hoc signed, not notarized.
+- Intel Mac builds with a separate app identity, so the original app can stay installed.
+- Menu-bar-only operation, without a Dock icon. Closing the main window keeps the app running.
+- A draggable Gastly companion with animated smoke, cursor-aware expressions and a microphone-driven gas waveform. It moves to bottom-center while recording, then returns home before the processing swirl starts. Respects Reduce Motion.
+- Optional extra mouse-button shortcuts and a separate manual Enter shortcut. Automatic Enter is off by default.
+- Explicitly opt-in LLM cleanup, off by default.
+- Usage telemetry removed.
+- `gpt-transcribe` added to the OpenAI model choices without changing existing selections.
 
-[AGPL-3.0](LICENSE).
+Builds are available from the [Intel macOS workflow](https://github.com/archsinit/epicenter/actions/workflows/intel-macos.yml). Personal-use builds are ad-hoc signed, not notarized.
+
+The original [AGPL-3.0 license](LICENSE) and copyright notices are retained. Gastly and Pokémon belong to their respective rights holders; no affiliation is implied.

@@ -3,12 +3,18 @@ import OpenAI from 'openai';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { WhisperingErr, type WhisperingError } from '$lib/result';
 import { getExtensionFromAudioBlob } from '$lib/services/_utils';
+import {
+	buildOpenaiTranscriptionRequest,
+	type OpenAIModel,
+} from '$lib/services/transcription/cloud/openai-request';
 import type { Settings } from '$lib/settings';
-import { buildOpenaiTranscriptionRequest, type OpenAIModel } from '$lib/services/transcription/cloud/openai-request';
 
 const customFetch = window.__TAURI_INTERNALS__ ? tauriFetch : undefined;
 
-export { OPENAI_TRANSCRIPTION_MODELS, type OpenAIModel } from '$lib/services/transcription/cloud/openai-request';
+export {
+	OPENAI_TRANSCRIPTION_MODELS,
+	type OpenAIModel,
+} from '$lib/services/transcription/cloud/openai-request';
 
 const MAX_FILE_SIZE_MB = 25 as const;
 
@@ -99,7 +105,9 @@ export function createOpenaiTranscriptionService() {
 						dangerouslyAllowBrowser: true,
 						fetch: customFetch,
 						...(options.baseURL && { baseURL: options.baseURL }),
-					}).audio.transcriptions.create(buildOpenaiTranscriptionRequest(file, options)),
+					}).audio.transcriptions.create(
+						buildOpenaiTranscriptionRequest(file, options),
+					),
 				catch: (error) => {
 					// Check if it's NOT an OpenAI API error
 					if (!(error instanceof OpenAI.APIError)) {
