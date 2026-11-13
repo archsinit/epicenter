@@ -1,6 +1,6 @@
 import { createTaggedError } from 'wellcrafted/error';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { WHISPER_RECOMMENDED_MEDIA_TRACK_CONSTRAINTS } from '$lib/constants/audio';
+import { WHISPER_RECOMMENDED_MEDIA_TRACK_CONSTRAINTS } from '../constants/audio/media-constraints';
 import type {
 	Device,
 	DeviceAcquisitionOutcome,
@@ -9,6 +9,7 @@ import type {
 } from './types';
 import { asDeviceIdentifier } from './types';
 import { waitForCaptureStartup } from './capture-startup-live';
+import { createDeviceEnumerationCore, stopRecordingStream } from './device-enumeration';
 
 const { DeviceStreamServiceError, DeviceStreamServiceErr } = createTaggedError(
 	'DeviceStreamServiceError',
@@ -43,40 +44,35 @@ async function hasExistingAudioPermission(): Promise<boolean> {
 	return false;
 }
 
-export async function enumerateDevices(): Promise<
-	Result<Device[], DeviceStreamServiceError>
-> {
-	const ready = await waitForCaptureStartup();
-	if (ready.error) return DeviceStreamServiceErr({ message: ready.error.message });
-	const hasPermission = await hasExistingAudioPermission();
-	if (!hasPermission) {
-		// extension.openWhisperingTab({});
-	}
-	return tryAsync({
-		try: async () => {
-			const allAudioDevicesStream = await navigator.mediaDevices.getUserMedia({
+export function createDeviceEnumeration() {
+	const core = createDeviceEnumerationCore({
+		acquire: async () => {
+			const ready = await waitForCaptureStartup();
+			if (ready.error) throw new Error(ready.error.message);
+			await hasExistingAudioPermission();
+			return navigator.mediaDevices.getUserMedia({
 				audio: WHISPER_RECOMMENDED_MEDIA_TRACK_CONSTRAINTS,
 			});
-			const devices = await navigator.mediaDevices.enumerateDevices();
-			for (const track of allAudioDevicesStream.getTracks()) {
-				track.stop();
-			}
-			const audioInputDevices = devices.filter(
-				(device) => device.kind === 'audioinput',
-			);
-			// On Web: Return Device objects with both ID and label
-			return audioInputDevices.map((device) => ({
+		},
+		enumerate: () => navigator.mediaDevices.enumerateDevices(),
+		cleanupStream: stopRecordingStream,
+	});
+	return {
+		cleanup: core.cleanup,
+		get held() { return core.held; },
+		async enumerateDevices(): Promise<Result<Device[], DeviceStreamServiceError>> {
+			const result = await core.enumerate();
+			if (result.error) return DeviceStreamServiceErr({ message: result.error.message });
+			return Ok(result.data.filter((device) => device.kind === 'audioinput').map((device) => ({
 				id: asDeviceIdentifier(device.deviceId),
 				label: device.label,
-			}));
+			})));
 		},
-		catch: (error) =>
-			DeviceStreamServiceErr({
-				message:
-					'We need permission to see your microphones. Check your browser settings and try again.',
-			}),
-	});
+	};
 }
+
+const defaultEnumeration = createDeviceEnumeration();
+export const enumerateDevices = defaultEnumeration.enumerateDevices;
 
 /**
  * Get a media stream for a specific device identifier
@@ -115,9 +111,11 @@ async function getStreamForDeviceIdentifier(
 export async function getRecordingStream({
 	selectedDeviceId,
 	sendStatus,
+	enumerateForFallback = enumerateDevices,
 }: {
 	selectedDeviceId: DeviceIdentifier | null;
 	sendStatus: UpdateStatusMessageFn;
+	enumerateForFallback?: typeof enumerateDevices;
 }): Promise<
 	Result<
 		{ stream: MediaStream; deviceOutcome: DeviceAcquisitionOutcome },
@@ -165,7 +163,7 @@ export async function getRecordingStream({
 		>
 	> => {
 		const { data: devices, error: enumerateDevicesError } =
-			await enumerateDevices();
+			await enumerateForFallback();
 		if (enumerateDevicesError)
 			return DeviceStreamServiceErr({
 				message:
@@ -219,8 +217,4 @@ export async function getRecordingStream({
 	});
 }
 
-export function cleanupRecordingStream(stream: MediaStream) {
-	for (const track of stream.getTracks()) {
-		track.stop();
-	}
-}
+export const cleanupRecordingStream = stopRecordingStream;

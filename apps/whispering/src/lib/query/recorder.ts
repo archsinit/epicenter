@@ -4,6 +4,7 @@ import type { WhisperingRecordingState } from '$lib/constants/audio';
 import { WhisperingErr } from '$lib/result';
 import * as services from '$lib/services';
 import { getDefaultRecordingsFolder } from '$lib/services/recorder';
+import { createRecorderSession } from '$lib/services/recorder/session';
 import { settings } from '$lib/stores/settings.svelte';
 import { defineMutation, defineQuery, queryClient } from './_client';
 import { notify } from './notify';
@@ -16,11 +17,8 @@ const recorderKeys = {
 	cancelRecording: ['recorder', 'cancelRecording'] as const,
 } as const;
 
-/**
- * Module-level state to track the current recording ID.
- * This ensures the same ID is used from recording start through database save.
- */
-let currentRecordingId: string | null = null;
+// The capture owner/ID survive Stop errors and changes to recording.method.
+const session = createRecorderSession();
 
 const invalidateRecorderState = () =>
 	queryClient.invalidateQueries({ queryKey: recorderKeys.recorderState });
@@ -46,7 +44,7 @@ export const recorder = {
 		queryKey: recorderKeys.recorderState,
 		queryFn: async () => {
 			const { data: state, error: getStateError } =
-				await recorderService().getRecorderState();
+				await session.getRecorderState(recorderService());
 			if (getStateError) {
 				return WhisperingErr({
 					title: '❌ Failed to get recorder state',
@@ -63,9 +61,6 @@ export const recorder = {
 		mutationFn: async ({ toastId }: { toastId: string }) => {
 			// Generate a unique recording ID that will serve as the file name
 			const recordingId = nanoid();
-
-			// Store the recording ID so it can be reused when stopping
-			currentRecordingId = recordingId;
 
 			// Prepare recording parameters based on which method we're using
 			const baseParams = {
@@ -111,7 +106,7 @@ export const recorder = {
 				];
 
 			const { data: deviceAcquisitionOutcome, error: startRecordingError } =
-				await recorderService().startRecording(params, {
+				await session.start(recorderService(), params, {
 					sendStatus: (options) =>
 						notify.loading.execute({ id: toastId, ...options }),
 				});
@@ -130,37 +125,20 @@ export const recorder = {
 	stopRecording: defineMutation({
 		mutationKey: recorderKeys.stopRecording,
 		mutationFn: async ({ toastId }: { toastId: string }) => {
-			const { data: blob, error: stopRecordingError } =
-				await recorderService().stopRecording({
+			const { data: recording, error: stopRecordingError } =
+				await session.stop(recorderService(), {
 					sendStatus: (options) =>
 						notify.loading.execute({ id: toastId, ...options }),
 				});
 
 			if (stopRecordingError) {
-				// Reset recording ID on error
-				currentRecordingId = null;
 				return WhisperingErr({
 					title: '❌ Failed to stop recording',
 					serviceError: stopRecordingError,
 				});
 			}
 
-			// Retrieve the stored recording ID
-			const recordingId = currentRecordingId;
-
-			// Reset the recording ID now that we've retrieved it
-			currentRecordingId = null;
-
-			if (!recordingId) {
-				return WhisperingErr({
-					title: '❌ Missing recording ID',
-					description:
-						'An internal error occurred: recording ID was not set when stopping the recording.',
-				});
-			}
-
-			// Return both blob and recordingId so they can be used together
-			return Ok({ blob, recordingId });
+			return Ok(recording);
 		},
 		onSettled: invalidateRecorderState,
 	}),
@@ -169,13 +147,10 @@ export const recorder = {
 		mutationKey: recorderKeys.cancelRecording,
 		mutationFn: async ({ toastId }: { toastId: string }) => {
 			const { data: cancelResult, error: cancelRecordingError } =
-				await recorderService().cancelRecording({
+				await session.cancel(recorderService(), {
 					sendStatus: (options) =>
 						notify.loading.execute({ id: toastId, ...options }),
 				});
-
-			// Reset recording ID when canceling
-			currentRecordingId = null;
 
 			if (cancelRecordingError) {
 				return WhisperingErr({

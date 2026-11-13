@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { createCaptureLease } from './capture-lease';
-import { createLeasedRecorderService } from './recorder/leased';
+import { createLazyRecorderService, createLeasedRecorderService } from './recorder/leased';
 import {
 	RecorderServiceErr,
 	type RecorderService,
@@ -125,6 +125,37 @@ describe('native capture lease', () => {
 });
 
 describe('recorder admission adapter (synthetic backend only)', () => {
+	test('live-client resolution is lazy and shared, avoiding service-index initialization cycles', async () => {
+		const f = fixture(); let resolutions = 0;
+		const service = createLazyRecorderService(() => { resolutions++; return f.base; });
+		expect(resolutions).toBe(0);
+		await service.getRecorderState(); await service.enumerateDevices();
+		expect(resolutions).toBe(1);
+	});
+	test('temporary enumeration is leased, cleaned and released without nested admission', async () => {
+		const f = fixture(); let closes = 0;
+		f.base.enumerateDevices = async () => {
+			expect(f.lease.held).toBe(true);
+			return Ok([]);
+		};
+		const service = createLeasedRecorderService(f.base, f.lease, () => { closes++; });
+		expect((await service.enumerateDevices()).error).toBeNull();
+		expect(closes).toBe(1);
+		expect(f.calls).toEqual(['capture_acquire_dictation', 'capture_release_dictation']);
+		await service.startRecording(params, callbacks);
+		expect((await service.enumerateDevices()).error).toBeTruthy();
+		await service.cancelRecording(callbacks);
+	});
+	test('failed enumeration cleanup holds admission and Cancel retries the backend before release', async () => {
+		const f = fixture();
+		const service = createLeasedRecorderService(f.base, f.lease, () => { throw new Error('temporary stream still open'); });
+		expect((await service.enumerateDevices()).error).toBeTruthy();
+		expect(f.lease.held).toBe(true);
+		expect((await service.startRecording(params, callbacks)).error).toBeTruthy();
+		await service.cancelRecording(callbacks);
+		expect(f.counts.cancels).toBe(1); expect(f.lease.held).toBe(false);
+	});
+
 	test('native refusal never opens a device', async () => {
 		const f = fixture();
 		const lease = createCaptureLease({

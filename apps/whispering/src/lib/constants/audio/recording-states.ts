@@ -16,12 +16,15 @@ export const RECORDER_STATE_TO_ICON = {
 	RECORDING: '⏹️',
 } as const satisfies Record<WhisperingRecordingState, string>;
 
-export const VadState = type("'IDLE' | 'LISTENING' | 'SPEECH_DETECTED'");
+export const VadState = type("'IDLE' | 'STARTING' | 'LISTENING' | 'SPEECH_DETECTED' | 'STOPPING' | 'CLEANUP_REQUIRED'");
 
 export type VadState = typeof VadState.infer;
 
 export const VAD_STATE_TO_ICON = {
 	IDLE: '🎤',
+	STARTING: '⏳',
+	STOPPING: '⏹️',
+	CLEANUP_REQUIRED: '⚠️',
 	LISTENING: '💬',
 	SPEECH_DETECTED: '👂',
 } as const satisfies Record<VadState, string>;

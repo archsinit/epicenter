@@ -25,6 +25,8 @@ type Dependencies = {
 	>;
 	enumerateDevices: () => Promise<Result<Device[], { message: string }>>;
 	cleanupStream: (stream: MediaStream) => void;
+	cleanupPendingStreams?: () => void;
+	hasPendingStreams?: () => boolean;
 	createRecorder: (stream: MediaStream, bits: number) => MediaRecorder;
 	timesliceMs: number;
 };
@@ -44,16 +46,19 @@ export function createNavigatorRecorderCore(
 	let busy = false;
 	function cleanup() {
 		const stream = active?.stream ?? pendingStream;
-		if (!stream) return Ok(undefined);
 		const result = trySync({
-			try: () => deps.cleanupStream(stream),
+			try: () => { if (stream) deps.cleanupStream(stream); },
 			catch: failed,
 		});
-		if (!result.error) {
+		const pending = trySync({
+			try: () => deps.cleanupPendingStreams?.(),
+			catch: failed,
+		});
+		if (!result.error && !pending.error) {
 			active = null;
 			pendingStream = null;
 		}
-		return result;
+		return result.error ? result : pending;
 	}
 	async function guarded<T>(
 		action: () => Promise<Result<T, RecorderServiceError>>,
@@ -69,7 +74,7 @@ export function createNavigatorRecorderCore(
 	}
 	return {
 		getRecorderState: async () =>
-			Ok(busy || active || pendingStream ? 'RECORDING' : 'IDLE'),
+			Ok(busy || active || pendingStream || deps.hasPendingStreams?.() ? 'RECORDING' : 'IDLE'),
 		enumerateDevices: async () => {
 			const result = await deps.enumerateDevices();
 			return result.error
@@ -81,7 +86,7 @@ export function createNavigatorRecorderCore(
 			{ sendStatus },
 		) =>
 			guarded(async () => {
-				if (active || pendingStream)
+				if (active || pendingStream || deps.hasPendingStreams?.())
 					return RecorderServiceErr({
 						message:
 							'A recording/stream is already active. Stop/cancel it first.',

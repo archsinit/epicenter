@@ -7,10 +7,23 @@ import {
 	type RecorderServiceError,
 } from './types';
 
-/** Not wired into the live services yet. Mac FFmpeg now confirms owned-child
- * exit and Navigator/CPAL have explicit cleanup paths. Before activation, bind
- * the full VAD listening lifetime too and provide explicit legacy-session
- * recovery; never bypass an unverified saved FFmpeg session.
+/** Defer dereferencing the live clients until first use. FFmpeg imports the
+ * service index itself; eagerly wrapping it here would create a TDZ when it is
+ * first loaded by the lazy startup-restoration import.
+ */
+export function createLazyRecorderService(resolve: () => RecorderService): RecorderService {
+	let resolved: RecorderService | undefined;
+	const get = () => resolved ??= resolve();
+	return {
+		getRecorderState: () => get().getRecorderState(),
+		enumerateDevices: () => get().enumerateDevices(),
+		startRecording: (params, callbacks) => get().startRecording(params, callbacks),
+		stopRecording: (callbacks) => get().stopRecording(callbacks),
+		cancelRecording: (callbacks) => get().cancelRecording(callbacks),
+	};
+}
+
+/** Mac live recorder admission. Never bypass an unverified saved session.
  *
  * Same recorder API/data. Only desktop capture admission/lifetime is added.
  * Never release on an unknown/failed cleanup and never discard a saved Blob
@@ -19,6 +32,7 @@ import {
 export function createLeasedRecorderService(
 	base: RecorderService,
 	lease: CaptureLease,
+	cleanupEnumeration?: () => void,
 ): RecorderService {
 	let busy = false;
 	let safeToRelease = false;
@@ -60,8 +74,34 @@ export function createLeasedRecorderService(
 			);
 	}
 	return {
-		getRecorderState: () => base.getRecorderState(),
-		enumerateDevices: () => base.enumerateDevices(),
+		getRecorderState: async () => {
+			const state = await call(() => base.getRecorderState());
+			if (state.error) return Err(state.error);
+			return Ok(lease.held ? 'RECORDING' : state.data);
+		},
+		enumerateDevices: () => {
+			// CPAL and FFmpeg list devices without opening a recording input.
+			// Navigator opens a temporary getUserMedia stream and needs admission.
+			if (!cleanupEnumeration) return base.enumerateDevices();
+			return guarded(async () => {
+				if (safeToRelease) {
+					const released = await release();
+					if (released.error) return released;
+				}
+				const acquired = await lease.acquire();
+				if (acquired.error) return RecorderServiceErr({ message: acquired.error.message });
+				const result = await call(() => base.enumerateDevices());
+				const cleaned = await call(async () => {
+					cleanupEnumeration();
+					return Ok(undefined);
+				});
+				if (cleaned.error) return Err(cleaned.error); // retain lease; Cancel retries cleanup
+				safeToRelease = true;
+				const released = await release();
+				if (released.error) return Err(released.error);
+				return result;
+			});
+		},
 		startRecording: (params, callbacks) =>
 			guarded(async () => {
 				if (safeToRelease) {

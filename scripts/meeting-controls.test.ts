@@ -67,6 +67,30 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(page).toContain('{#if IS_MACOS && window.__TAURI_INTERNALS__}');
 		expect(page).toContain('<SavedSessionRecovery />');
 	});
+	test('live Mac recorder and VAD entry points bind lifetime ownership without eager client cycles', () => {
+		const services = readFileSync(new URL('../index.ts', clientRoot), 'utf8');
+		for (const client of ['Cpal', 'Navigator', 'Ffmpeg'])
+			expect(services).toContain(`macRecorder(() => ${client}RecorderServiceLive`);
+		expect(services).toContain('createLazyRecorderService(() =>');
+		expect(services).toContain('createLeasedRecorderService(base, createNativeCaptureLease(), cleanupEnumeration)');
+		expect(services).toContain("OsServiceLive.type() === 'macos'");
+		const vad = readFileSync(new URL('../../query/vad.svelte.ts', clientRoot), 'utf8');
+		expect(vad).toContain('lease: createNativeCaptureLease()');
+		expect(vad).toContain('createVadRecorderCore({');
+		expect(vad).toContain('await core.enumerateDevices()');
+		expect(vad).toContain('await core.start(');
+		expect(vad).toContain('await core.stop()');
+		expect(vad).toContain("model: 'v5'");
+		const navigator = readFileSync(new URL('navigator.ts', clientRoot), 'utf8');
+		expect(navigator).toContain('enumerateForFallback: devices.enumerateDevices');
+		expect(navigator).toContain('cleanupPendingStreams: devices.cleanup');
+		const dictation = readFileSync(new URL('../../query/recorder.ts', clientRoot), 'utf8');
+		expect(dictation).toContain('const session = createRecorderSession()');
+		expect(dictation).toContain('await session.start(recorderService(), params');
+		expect(dictation).toContain('await session.stop(recorderService(),');
+		expect(dictation).toContain('await session.cancel(recorderService(),');
+		expect(dictation).not.toContain('currentRecordingId = null');
+	});
 	test('Quit interception covers ExitRequested rather than only tray actions', () => {
 		expect(app).toContain('RunEvent::ExitRequested { api, .. }');
 		expect(app).toContain('meeting_commands::handle_exit(handler, api)');

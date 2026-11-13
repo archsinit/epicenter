@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { createCaptureLease } from './capture-lease';
+import { OsServiceLive } from './os';
 import { waitForCaptureStartup } from './capture-startup-live';
 
 export function createNativeCaptureLease() {
@@ -12,6 +13,6 @@ export function createNativeCaptureLease() {
 			return invoke<T>(command, args);
 		},
 		enabled:
-			typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__),
+			typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__) && OsServiceLive.type() === 'macos',
 	});
 }

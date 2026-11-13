@@ -121,6 +121,24 @@ describe('Navigator hardware handoff, synthetic stream/recorder', () => {
 		expect(await result.data!.text()).toBe('fixture audio');
 		expect(f.flags.live).toBe(false);
 	});
+	test('temporary cleanup failure also preserves already stopped audio for retry', async () => {
+		const f = fixture();
+		let pendingFailure = true;
+		const service = createNavigatorRecorderCore({
+			...f.deps,
+			cleanupPendingStreams: () => {
+				if (pendingFailure) throw new Error('temporary stream cleanup failed');
+			},
+		});
+		await service.startRecording(params, callbacks);
+		expect((await service.stopRecording(callbacks)).error).toBeTruthy();
+		expect(f.flags.live).toBe(false);
+		expect((await service.getRecorderState()).data).toBe('RECORDING');
+		pendingFailure = false;
+		const result = await service.stopRecording(callbacks);
+		expect(await result.data!.text()).toBe('fixture audio');
+		expect((await service.getRecorderState()).data).toBe('IDLE');
+	});
 	test('Cancel closes tracks even when recorder.stop throws', async () => {
 		const f = fixture();
 		await f.service.startRecording(params, callbacks);
