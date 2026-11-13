@@ -1,5 +1,13 @@
 # Whispering Intel work state
 
+## Session handoff: latest user update
+
+Read `HANDOFF.md` for the consolidated next-session brief. Roger is now at his computer and explicitly wants real testing. The existing fork was opened, and he was asked to enable its normal Microphone/Accessibility permissions; he has not confirmed that he did so. Do not assume permissions are granted or that the desktop is still unavailable. Coordinate the remaining changed-feature checks with him, using authorized SSH access from the private workspace note.
+
+Latest model preference under consideration: OpenAI `whisper-1` for everyday dictation, local Large v3 Turbo for meeting recordings. This has not been configured or benchmarked. The installed fork was last restored to local Whisper C++/manual mode with no test keys. Do not treat the model discussion as approval to download a model, use real API credentials or expand QA beyond our changes.
+
+The Intel scheduler stays PAUSED for this handoff. Its target is the old conversation; a new session must not blindly unpause it without verifying/repointing the local target. No new Mac actions, builds or tests were performed to prepare the handoff.
+
 ## Current status: automated validation complete; Intel scheduler paused pending on-Mac checks
 
 Roger clarified: test ONLY our changes, not the whole upstream app. Do not add broad speech-recognition/provider-quality or unrelated regression testing. Remaining scope is Dock persistence, live waveform/processing indicator, independent Enter, parallel keyboard/mouse bindings with suppression, and the explicit cleanup toggle.
