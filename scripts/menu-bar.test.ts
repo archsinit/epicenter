@@ -15,6 +15,13 @@ test('native startup owns the tray before hiding the Dock icon', () => {
 	expect(native).toContain('.icon_as_template(true)');
 });
 
+test('recording updates restore the template flag on each replacement image', () => {
+	const update = native.slice(native.indexOf('pub fn set_tray_recording'));
+	expect(update).toContain('tray.set_icon_as_template(true)');
+	expect(update.indexOf('tray.set_icon(Some(')).toBeLessThan(update.indexOf('tray.set_icon_as_template(true)'));
+	expect(update.indexOf('tray.set_icon_as_template(true)')).toBeLessThan(update.indexOf('tray.set_tooltip'));
+});
+
 test('menu provides recovery and explicit quit without targeting auxiliary windows', () => {
 	for (const action of ['tray-show', 'tray-settings', 'tray-quit']) {
 		expect(native).toContain(`"${action}" =>`);

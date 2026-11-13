@@ -13,6 +13,12 @@ async function pixels(page, png) {
   const ctx = c.getContext('2d'); ctx.drawImage(img,0,0); return Array.from(ctx.getImageData(0,0,c.width,c.height).data);
  }, png.toString('base64'));
 }
+async function uploadedLevels(page) {
+ return page.locator('.companion canvas').evaluate(c => {
+  const gl=c.getContext('webgl'), program=gl.getParameter(gl.CURRENT_PROGRAM);
+  return Array.from({length:24},(_,i)=>gl.getUniform(program,gl.getUniformLocation(program,`levels[${i}]`)));
+ });
+}
 function eyes(rgba, width) {
  let x=0,y=0,count=0;
  for(let py=32;py<74;py++)for(let px=68;px<112;px++) {
@@ -50,7 +56,19 @@ function eyes(rgba, width) {
  await page.screenshot({path:path.join(artifacts,'recording.png')});
  assert.equal(await page.locator('.status').evaluate(e=>e.offsetWidth),1,'Routine text must be screen-reader-only');
  await page.getByLabel('Demo voice activity').uncheck();await page.waitForTimeout(1300);
- assert(await page.locator('.waveform > span').evaluateAll(els=>els.every(e=>parseFloat(e.style.height)===1)));
+ assert((await uploadedLevels(page)).every(v=>v===0));
+ assert.equal(await page.locator('.waveform').count(),0,'The gas itself is the waveform; no separate bars');
+ const gasShapes=await page.evaluate(async()=>{
+  const {createCompanionRenderer}=await import('/src/lib/components/companion-renderer.ts');
+  const c=document.createElement('canvas'),r=createCompanionRenderer(c);if(!r)throw Error('No test shader');
+  const f={time:2,wave:1,processing:0,head:0,spin:0,yaw:0,pitch:0,blink:0,failure:0,levels:Array(24).fill(0)};
+  for(let i=0;i<100&&!r.draw(f);i++)await new Promise(resolve=>setTimeout(resolve,10));
+  const gl=c.getContext('webgl');
+  function extent(level){f.levels.fill(level);r.draw(f);const data=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,data);let low=c.height,high=-1;for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++)if(data[(y*c.width+x)*4+3]>12){low=Math.min(low,y);high=Math.max(high,y);}return high-low+1;}
+  const quiet=extent(0),voice=extent(1);r.dispose();return {quiet,voice};
+ });
+ assert(gasShapes.quiet>0 && gasShapes.voice>gasShapes.quiet*2,`Real amplitudes must change GAS thickness: ${JSON.stringify(gasShapes)}`);
+ console.log('Rendered gas waveform heights (quiet/voice):',gasShapes);
  await page.getByRole('button',{name:'transcribing',exact:true}).click();await page.waitForTimeout(1000);
  assert.equal(await page.locator('.companion').getAttribute('data-mode'),'vortex');
  await page.screenshot({path:path.join(artifacts,'processing.png')});
@@ -89,13 +107,20 @@ function eyes(rgba, width) {
  for(let y=0;y<120;y++)edgeAlpha=Math.max(edgeAlpha,alpha[(y*180)*4+3],alpha[(y*180+179)*4+3]);
  assert.equal(edgeAlpha,0,'Every outer pixel must be fully transparent, with no rectangular border');
  await native.evaluate(()=>{window.testSnapshot={phase:'recording',level:0.25,inputActive:true,gaze:[1,-1]}});
- await native.waitForTimeout(450);assert(await native.locator('.waveform > span').evaluateAll(els=>els.some(e=>parseFloat(e.style.height)>1)));
+ await native.waitForTimeout(450);assert((await uploadedLevels(native)).some(v=>v>0));
+ await native.evaluate(()=>{window.testSnapshot.phase='transcribing';});await native.waitForTimeout(200);
+ assert((await uploadedLevels(native)).some(v=>v>0),'Keep the last real ribbon shape through the morph');
+ await native.evaluate(()=>{window.testSnapshot.phase='recording';});await native.waitForTimeout(450);
+ await native.emulateMedia({reducedMotion:'reduce'});
+ await native.evaluate(()=>{window.testSnapshot.level=0.01;});await native.waitForTimeout(450);
+ assert(Math.abs((await uploadedLevels(native)).at(-1)-0.2)<0.0001,'Reduced motion must still update the real gas waveform');
  await native.evaluate(()=>{window.testSnapshot.level=null;});await native.waitForTimeout(3500);
  assert.match(await native.locator('.status').innerText(),/meter unavailable/);assert.equal(await native.locator('.warning').count(),1);
- assert(await native.locator('.waveform > span').evaluateAll(els=>els.every(e=>parseFloat(e.style.height)===1)));
+ assert((await uploadedLevels(native)).every(v=>v===0));
+ assert.equal(await native.locator('.waveform').count(),0);
  await native.evaluate(()=>{window.testSnapshot.level=0.9;window.testSnapshot.inputActive=false;});await native.waitForTimeout(3500);
  assert.match(await native.locator('.status').innerText(),/No microphone signal/);
- assert(await native.locator('.waveform > span').evaluateAll(els=>els.every(e=>parseFloat(e.style.height)===1)));
+ assert((await uploadedLevels(native)).every(v=>v===0));
  await native.evaluate(()=>{window.testFailure=true;});await native.waitForTimeout(450);assert.match(await native.locator('.status').innerText(),/disconnected/);
  await native.evaluate(()=>{window.testFailure=false;window.testSnapshot.phase='idle';});await native.waitForTimeout(500);
  assert.equal(await native.locator('.companion').getAttribute('data-mode'),'idle');assert.equal(await native.evaluate(()=>window.maximum),1);

@@ -88,6 +88,11 @@ pub fn set_tray_recording(recording: bool, app: tauri::AppHandle) -> Result<(), 
     let tray = app.tray_by_id(TRAY_ID).ok_or("Menu-bar icon unavailable")?;
     tray.set_icon(Some(microphone_icon(recording)))
         .map_err(|error| error.to_string())?;
+    // tray-icon's macOS set_icon creates a fresh NSImage with template=false.
+    // Reapply after EVERY replacement so AppKit tints it for the actual menu bar.
+    #[cfg(target_os = "macos")]
+    tray.set_icon_as_template(true)
+        .map_err(|error| error.to_string())?;
     tray.set_tooltip(Some(if recording {
         "Whispering Intel — Recording"
     } else {

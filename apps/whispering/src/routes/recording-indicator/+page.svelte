@@ -65,7 +65,9 @@
 				.then((value) => {
 					if (stopped) return;
 					disconnected = false;
-					if (value.phase !== snapshot.phase) levels = Array(24).fill(0);
+					// Keep the last real shape while the recording ribbon morphs into processing.
+					if (value.phase === 'recording' && snapshot.phase !== 'recording')
+						levels = Array(24).fill(0);
 					snapshot = value;
 					if (value.phase === 'recording') {
 						levels = [

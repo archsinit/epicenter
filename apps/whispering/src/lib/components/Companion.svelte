@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { gazeAxis } from '$lib/components/companion-motion';
+	import {
+		advanceFormMotion,
+		gazeAxis,
+		initialFormMotion,
+	} from '$lib/components/companion-motion';
 	import { createCompanionRenderer } from '$lib/components/companion-renderer';
 
 	type Phase =
@@ -52,9 +56,8 @@
 		let frame = 0,
 			previous = 0,
 			start = 0;
-		let wave = 0,
-			processing = 0,
-			yaw = 0,
+		let motion = initialFormMotion();
+		let yaw = 0,
 			pitch = 0;
 		let previousSignature = '';
 		function animate(now: number) {
@@ -64,8 +67,7 @@
 			previous = now;
 			if (!start) start = now;
 			const blend = reduced ? 1 : 1 - Math.exp(-dt / 180);
-			wave += ((mode === 'wave' ? 1 : 0) - wave) * blend;
-			processing += ((mode === 'vortex' ? 1 : 0) - processing) * blend;
+			motion = advanceFormMotion(motion, mode, dt, reduced);
 			yaw += ((reduced ? 0 : gazeAxis(gaze[0]) * 0.65) - yaw) * blend;
 			pitch += ((reduced ? 0 : gazeAxis(gaze[1]) * 0.45) - pitch) * blend;
 			const time = reduced ? 0 : (now - start) / 1000;
@@ -74,13 +76,16 @@
 				!reduced && cycle > 4.2 && cycle < 4.42
 					? Math.sin(((cycle - 4.2) / 0.22) * Math.PI)
 					: 0;
-			const signature = `${mode}:${warning}:${disconnected}`;
+			const signature = `${mode}:${warning}:${disconnected}:${mode === 'wave' ? levels.join(',') : ''}`;
 			if (reduced && ready && signature === previousSignature) return;
 			ready =
 				renderer?.draw({
 					time,
-					wave,
-					processing,
+					wave: motion.wave,
+					processing: motion.processing,
+					head: motion.head,
+					spin: motion.spin,
+					levels,
 					yaw,
 					pitch,
 					blink,
@@ -121,11 +126,6 @@
 					/>{/if}
 			</div>
 		{/if}
-	</div>
-	<div class="waveform" class:visible={mode === 'wave'} aria-hidden="true">
-		{#each levels as level, index (index)}
-			<span style:height="{1 + Math.max(0, Math.min(1, level)) * 23}px"></span>
-		{/each}
 	</div>
 	<button
 		class="drag-target"
@@ -169,29 +169,6 @@
 	}
 	canvas.ready {
 		opacity: 1;
-	}
-	.waveform {
-		position: absolute;
-		top: 39px;
-		left: 32px;
-		width: 116px;
-		height: 27px;
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		gap: 2.5px;
-		opacity: 0;
-		transition: opacity 350ms ease;
-	}
-	.waveform.visible {
-		opacity: 1;
-	}
-	.waveform span {
-		width: 1.5px;
-		border-radius: 2px;
-		background: #eedaff;
-		box-shadow: 0 0 4px #c779ff;
-		transition: height 60ms linear;
 	}
 	.drag-target {
 		position: absolute;

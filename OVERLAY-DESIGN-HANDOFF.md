@@ -26,7 +26,16 @@ Roger approved a four-form Gastly reference sheet, saying “Now what? I'm satis
 - **Head direction:** actual sideways/upward/downward turning is wanted, not merely translating/rolling a flat face. Preserve likeness; prototype a genuinely dimensional or multiview treatment. Do not describe flat CSS tilt as a completed facial rig.
 - **Dragging APPROVED:** Roger explicitly wants to drag the overlay around. This supersedes the blanket click-through-only restriction for the character itself. Preserve non-focus-stealing operation and click-through outside the intended drag target. Primary-button drag must not affect configured extra-button shortcuts. Exact drag mechanism/persistence remains to be implemented/tested.
 - **Normal state text:** Roger does not want visible “Listening”, “Processing” or other routine status labels. Keep accessible state semantics. Failure/meter-unavailable communication still needs a clear, unobtrusive treatment; do not silently represent unavailable input as voice or success.
-- **Mouse shortcuts:** Roger initially reported a failure, then explicitly retested and said they work fine. Treat them as working by his latest report; do not change bindings, provider settings, OS permissions or event-tap code based on the earlier report. A targeted own-app AX check also observed an Accessibility Permission Issue warning; that warning does not establish a current mouse failure or its cause.
+- **Mouse shortcuts:** Roger initially reported a failure, then explicitly retested and said they work fine. Treat them as working by his latest report; do not change bindings, provider settings, OS permissions or event-tap code based on the earlier report. An earlier AX check reported an Accessibility warning, but its materialized process reference could be ambiguous with the identically named upstream process; do not treat it as reliable fork-specific evidence. Roger's direct retest is the current mouse-status evidence. No permissions or bindings were changed.
+
+### Latest refinements approved by Roger
+
+- Recording waveform must be the gas silhouette itself, driven by real microphone history, NOT separate white bars. Remove the bar overlay.
+- Gas should originate at the shared face/waveform core and visibly spread outward, rather than float as a disconnected backdrop. Revised transport is source-relative radial advection with independently changing turbulence and outward fading.
+- Keep the entering idle-to-processing morph; settle processing spin BEFORE revealing the returning face. Preserve the last real ribbon shape through recording-to-transcribing instead of clearing it immediately.
+- Remove the pale crown arc Roger identified in his screenshot. Retouch only the derived idle-head outer upper edge, trim stray gas from its alpha mask, project the actual head radius, remove extra shader rim lighting and feather the sphere silhouette. Preserve original approved artwork and the broad forehead highlight.
+- Fix menu-bar light/dark adaptation by restoring native template mode after each icon replacement. Verified dependency behavior: tray-icon's macOS `set_icon` creates a fresh non-template image even when startup used template mode. Do not hardcode a white icon or change OS appearance.
+- These refinements are tracked in `apps/whispering/specs/20261113T063038-gas-waveform-and-emission.md`. Local 30-test suite and rendered browser waveform/transition checks pass; actual new-build installation/native validation still pending at this update.
 
 ### Revision implementation/testing
 

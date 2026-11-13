@@ -15,8 +15,21 @@ uniform float yaw;
 uniform float pitch;
 uniform float blink;
 uniform float failure;
+uniform float headVisibility;
+uniform float spin;
+uniform float levels[24];
 uniform vec2 resolution;
 uniform sampler2D face;
+
+// Interpolated real amplitude history controls the GAS envelope, not overlay bars.
+float waveform(float position) {
+    float index = clamp(position, 0.0, 1.0) * 23.0;
+    float amplitude = 0.0;
+    for (int i = 0; i < 24; i++) {
+        amplitude += levels[i] * max(0.0, 1.0 - abs(index - float(i)));
+    }
+    return amplitude;
+}
 
 float hash(vec3 p) {
     p = fract(p * 0.1031);
@@ -47,15 +60,18 @@ vec3 turnX(vec3 p, float a) { return vec3(p.x, cos(a)*p.y - sin(a)*p.z, sin(a)*p
 void main() {
     vec2 p = (uv - 0.5) * vec2(3.0, 2.0);
     p.y -= 0.125;
-    float headAmount = max(0.0, 1.0 - wave - processing);
+    float headAmount = headVisibility;
+    float waveHeight = 0.065 + 0.40 * waveform(p.x / 2.30 + 0.5);
+    float swirlMix = smoothstep(0.12, 0.65, processing);
     vec2 hp = p - vec2(0.0, sin(time * 1.2) * 0.025 * headAmount);
     float radius = 0.292;
     float r2 = dot(hp, hp) / (radius * radius);
-    float ha = (1.0 - smoothstep(0.96, 1.0, r2)) * headAmount;
+    float ha = (1.0 - smoothstep(0.88, 1.0, r2)) * headAmount;
     float hz = sqrt(max(0.0, 1.0 - r2)) * radius;
     vec3 normal = vec3(hp / radius, sqrt(max(0.0, 1.0 - r2)));
     vec3 local = turnX(turnY(normal, -yaw), -pitch);
-    vec2 faceUV = local.xy * 0.5 + 0.5;
+    // Project the actual 76px-radius head, not the crop's former gas/bright rim.
+    vec2 faceUV = local.xy * (76.0 / 168.0) + 0.5;
     vec4 artwork = texture2D(face, clamp(faceUV, 0.0, 1.0));
     vec3 material = vec3(0.105, 0.07, 0.15) * (0.85 + 0.15 * normal.z);
     vec3 head = mix(material, artwork.rgb, artwork.a * smoothstep(-0.03, 0.12, local.z));
@@ -64,7 +80,6 @@ void main() {
         * (1.0 - step(0.46, faceUV.x) * step(faceUV.x, 0.54));
     float whites = smoothstep(0.48, 0.85, min(artwork.r, min(artwork.g, artwork.b)));
     head = mix(head, vec3(0.13, 0.085, 0.19), blink * eyeRegion * whites);
-    head += vec3(0.11, 0.04, 0.17) * pow(1.0 - clamp(normal.z, 0.0, 1.0), 3.0);
 
     vec3 color = vec3(0.0);
     float alpha = 0.0;
@@ -76,13 +91,17 @@ void main() {
             alpha += (1.0 - alpha) * ha;
             headPlaced = true;
         }
-        vec3 q = vec3(p.x * 1.45 / mix(1.0, 1.43, wave), p.y * 1.45 / mix(1.0, 0.43, wave), z);
+        vec3 q = vec3(hp.x * 1.45 / mix(1.0, 1.43, wave), hp.y * 1.45 / mix(1.0, waveHeight, wave), z);
         float r = length(q.xy);
-        // Angular speed varies with radius/depth. The noise also advects and deforms:
-        // this is deliberately NOT a rigidly rotated noise field or texture.
-        q.xy = rotation(processing * (2.7 * exp(-r * 1.4) - time * 0.52 + z * 0.5)) * q.xy;
-        vec3 advect = vec3(time * 0.11, -time * 0.16, time * 0.13);
-        vec3 field = q * vec3(3.8, 3.8, 2.6);
+        // Integrated spin stops before the face returns; no absolute-time unwinding.
+        q.xy = rotation(swirlMix * (2.7 * exp(-r * 1.4) + z * 0.5) - spin) * q.xy;
+        // Retarded radial transport: newly emitted density travels OUT from the
+        // face's rim / waveform core, then fades. Angular coordinates are periodic.
+        float travel = max(0.0, r - headAmount * 0.38);
+        vec2 direction = q.xy / max(r, 0.001);
+        vec3 field = vec3(direction * (0.2 + 2.6 * smoothstep(0.0, 0.34, travel)),
+                          travel * 4.2 - time * 0.85 + z * 1.6);
+        vec3 advect = vec3(0.0, 0.0, time * 0.045);
         vec3 warp = vec3(
             noise(field * 0.64 + advect),
             noise(field * 0.71 - advect.yzx + 7.3),
@@ -91,7 +110,7 @@ void main() {
         float fine = noise(field * 3.1 - advect * 1.7);
         float edge = 1.0 - smoothstep(0.72, 1.17, r + (warp.x - 0.5) * 0.25);
         float volume = exp(-dot(q * vec3(0.86, 0.86, 1.0), q * vec3(0.86, 0.86, 1.0)) * 1.65);
-        float density = smoothstep(0.25, 0.65, n + fine * 0.13) * edge * volume * 0.48;
+        float density = smoothstep(0.25, 0.65, n + fine * 0.13) * edge * volume * mix(0.48, 0.66, wave);
         // A soft vortex hollow; turbulence is still visible inside and across its rim.
         density *= mix(1.0, smoothstep(0.08, 0.42, r), processing * 0.88);
         // Clear facial features without cutting a hole through the background gas.
@@ -99,6 +118,7 @@ void main() {
         float filament = pow(max(0.0, 1.0 - abs(n - 0.53) * 5.0), 3.0);
         vec3 violet = mix(vec3(0.22, 0.035, 0.39), vec3(0.65, 0.32, 0.88), n);
         violet = mix(violet, vec3(0.88, 0.67, 1.0), filament * (0.22 + fine * 0.25));
+        violet = mix(violet, vec3(0.80, 0.43, 1.0), wave * 0.35 * exp(-q.y * q.y * 3.0));
         violet = mix(violet, vec3(0.75, 0.18, 0.40), failure * 0.25);
         color += (1.0 - alpha) * violet * density;
         alpha += (1.0 - alpha) * density;
@@ -118,6 +138,9 @@ export type CompanionFrame = {
 	pitch: number;
 	blink: number;
 	failure: number;
+	head: number;
+	spin: number;
+	levels: number[];
 };
 
 export function createCompanionRenderer(canvas: HTMLCanvasElement) {
@@ -166,7 +189,11 @@ export function createCompanionRenderer(canvas: HTMLCanvasElement) {
 		ready = true;
 	};
 	image.src = '/companion/idle-head.png';
-	const uniforms = Object.fromEntries(['time','wave','processing','yaw','pitch','blink','failure'].map(name => [name, gl.getUniformLocation(program, name)]));
+	const scalarNames = ['time','wave','processing','yaw','pitch','blink','failure','spin'] as const;
+	const uniforms = Object.fromEntries(scalarNames.map(name => [name, gl.getUniformLocation(program, name)]));
+	const head = gl.getUniformLocation(program, 'headVisibility');
+	const levels = gl.getUniformLocation(program, 'levels[0]');
+	const samples = new Float32Array(24);
 	const resolution = gl.getUniformLocation(program, 'resolution');
 	gl.uniform1i(gl.getUniformLocation(program, 'face'), 0);
 	const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -175,7 +202,13 @@ export function createCompanionRenderer(canvas: HTMLCanvasElement) {
 	return {
 		draw(frame: CompanionFrame) {
 			if (disposed || !ready || gl.isContextLost()) return false;
-			for (const name of Object.keys(uniforms) as (keyof CompanionFrame)[]) gl.uniform1f(uniforms[name] ?? null, frame[name]);
+			for (const name of scalarNames) gl.uniform1f(uniforms[name] ?? null, frame[name]);
+			gl.uniform1f(head, frame.head);
+			for (let i = 0; i < 24; i++) {
+				const value = frame.levels[i] ?? 0;
+				samples[i] = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+			}
+			gl.uniform1fv(levels, samples);
 			gl.uniform2f(resolution, canvas.width, canvas.height);
 			gl.drawArrays(gl.TRIANGLES, 0, 6);
 			return true;

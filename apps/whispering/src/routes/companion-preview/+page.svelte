@@ -38,7 +38,7 @@
 			levels = [
 				...levels.slice(1),
 				signal && phase === 'recording'
-					? Math.abs(Math.sin(t) * Math.sin(t * 0.37)) * 0.9
+					? Math.abs(Math.sin(t * 2.1) * Math.sin(t * 0.83)) * 0.95
 					: 0,
 			];
 		}, 40);
