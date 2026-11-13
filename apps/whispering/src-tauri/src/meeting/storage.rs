@@ -190,7 +190,7 @@ fn validate_wav(file: &mut File) -> io::Result<()> {
     Ok(())
 }
 
-fn private_directory(path: &Path) -> io::Result<()> {
+pub(crate) fn private_directory(path: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
@@ -213,7 +213,7 @@ fn private_new_file(path: &Path) -> io::Result<File> {
 
 /// Write a new file, sync it, then atomically replace the old file. On failure,
 /// preserve the previous manifest and leave any temporary file for recovery.
-fn atomic_write(directory: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn atomic_write(directory: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
     let temporary = loop {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let path = directory.join(format!(".{name}-{}-{sequence}.tmp", std::process::id()));

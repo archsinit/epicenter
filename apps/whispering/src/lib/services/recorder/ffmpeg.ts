@@ -26,6 +26,7 @@ import type {
 	RecorderServiceError,
 } from './types';
 import { RecorderServiceErr } from './types';
+import { createOwnedRecordingProcessClient } from './owned-process';
 
 /**
  * Desktop platforms supported by FFmpeg recording.
@@ -68,6 +69,7 @@ export const FFMPEG_DEFAULT_GLOBAL_OPTIONS = '' as const;
 const FfmpegSession = type({
 	pid: 'number',
 	outputPath: 'string',
+	'captureId?': 'string',
 }).or('null');
 
 /**
@@ -212,11 +214,26 @@ export function createFfmpegRecorderService(): RecorderService {
 		return session ? new Child(session.pid) : null;
 	};
 
-	// Helper to clear session and kill any running process
-	const clearSession = async (): Promise<void> => {
+	const ownedProcess = createOwnedRecordingProcessClient(invoke);
+	// Mac sessions are released only after the exact native-owned child exits.
+	const clearSession = async (): Promise<
+		Result<void, RecorderServiceError>
+	> => {
 		const session = sessionState.value;
-		if (!session) return;
+		if (!session) return Ok(undefined);
+		if (DESKTOP_PLATFORM === 'macos') {
+			if (!session.captureId)
+				return RecorderServiceErr({
+					message:
+						'This legacy FFmpeg session has no verifiable process ownership. No PID was signalled and the audio file was retained.',
+				});
+			const stopped = await ownedProcess.stop(session.captureId);
+			if (stopped.error) return Err(stopped.error);
+			sessionState.value = null;
+			return Ok(undefined);
+		}
 
+		// Existing non-Mac behaviour; meeting capture is Mac-only.
 		// Try to kill the process if it exists
 		await tryAsync({
 			try: async () => {
@@ -234,13 +251,22 @@ export function createFfmpegRecorderService(): RecorderService {
 
 		// Clear the session state
 		sessionState.value = null;
+		return Ok(undefined);
 	};
 
-	// Clear any orphaned process on initialization
-	if (sessionState.value) {
-		console.log('Found orphaned FFmpeg session, cleaning up...');
-		clearSession();
-	}
+	// A saved PID alone is never a reason to signal a process. Restore native
+	// ownership or a durable confirmed-exit receipt; otherwise preserve state.
+	const initialized = (async (): Promise<
+		Result<void, RecorderServiceError>
+	> => {
+		const previous = sessionState.value;
+		if (!previous) return Ok(undefined);
+		if (DESKTOP_PLATFORM !== 'macos') return clearSession();
+		const restored = await ownedProcess.restore(previous.captureId);
+		if (restored.error) return Err(restored.error);
+		if (!restored.data.running) sessionState.value = null;
+		return Ok(undefined);
+	})();
 
 	const enumerateDevices = async (): Promise<
 		Result<Device[], RecorderServiceError>
@@ -274,6 +300,8 @@ export function createFfmpegRecorderService(): RecorderService {
 		getRecorderState: async (): Promise<
 			Result<WhisperingRecordingState, RecorderServiceError>
 		> => {
+			const ready = await initialized;
+			if (ready.error) return Err(ready.error);
 			return Ok(sessionState.value ? 'RECORDING' : 'IDLE');
 		},
 
@@ -290,8 +318,11 @@ export function createFfmpegRecorderService(): RecorderService {
 			}: FfmpegRecordingParams,
 			{ sendStatus },
 		): Promise<Result<DeviceAcquisitionOutcome, RecorderServiceError>> => {
-			// Stop any existing recording
-			await clearSession();
+			const ready = await initialized;
+			if (ready.error) return Err(ready.error);
+			// Never start another input while the previous process is unverified.
+			const cleared = await clearSession();
+			if (cleared.error) return Err(cleared.error);
 
 			// Enumerate devices to validate selection
 			const { data: devices, error: enumerateError } = await enumerateDevices();
@@ -371,16 +402,15 @@ export function createFfmpegRecorderService(): RecorderService {
 				description: 'Initializing FFmpeg recording session...',
 			});
 
-			// Use command service to spawn FFmpeg process
-			// This will now throw if FFmpeg exits immediately with an error
-			const { data: process, error: startError } = await services.command.spawn(
-				asShellCommand(command),
-			);
+			const { data: process, error: startError } = await (DESKTOP_PLATFORM ===
+			'macos'
+				? ownedProcess.spawn(command)
+				: services.command.spawn(asShellCommand(command)));
 
 			if (startError) {
 				// The spawn function already caught the FFmpeg error and extracted the message
 				return RecorderServiceErr({
-					message: 'Failed to start recording',
+					message: `Failed to start recording: ${startError.message}`,
 				});
 			}
 
@@ -388,6 +418,7 @@ export function createFfmpegRecorderService(): RecorderService {
 			sessionState.value = {
 				pid: process.pid,
 				outputPath,
+				...('captureId' in process ? { captureId: process.captureId } : {}),
 			};
 
 			sendStatus({
@@ -401,6 +432,8 @@ export function createFfmpegRecorderService(): RecorderService {
 		stopRecording: async ({
 			sendStatus,
 		}): Promise<Result<Blob, RecorderServiceError>> => {
+			const ready = await initialized;
+			if (ready.error) return Err(ready.error);
 			const child = getCurrentChild();
 			const session = sessionState.value;
 			if (!child || !session) {
@@ -414,6 +447,36 @@ export function createFfmpegRecorderService(): RecorderService {
 				description: 'Stopping FFmpeg recording...',
 			});
 
+			if (DESKTOP_PLATFORM === 'macos') {
+				if (!session.captureId)
+					return RecorderServiceErr({
+						message:
+							'The recording process cannot be verified; session and audio were retained.',
+					});
+				const stopped = await ownedProcess.stop(session.captureId);
+				if (stopped.error) return Err(stopped.error);
+				// This acknowledgment means the owned child has exited and was reaped.
+				// Do not use file stabilization or a delayed PID kill as evidence.
+				sessionState.value = null;
+				if (stopped.data.forced)
+					sendStatus({
+						title: 'Recording force-stopped',
+						description:
+							'The process exited, but the audio file may be incomplete. It has been kept locally.',
+					});
+				const audio = await services.fs.pathToBlob(session.outputPath);
+				if (audio.error)
+					return RecorderServiceErr({
+						message: `Audio was retained at ${session.outputPath}, but could not be read: ${audio.error.message}`,
+					});
+				if (!audio.data.size)
+					return RecorderServiceErr({
+						message: 'Recording file is empty; it has been retained locally.',
+					});
+				return Ok(audio.data);
+			}
+
+			// Existing non-Mac stop path. Meetings are not enabled there.
 			// Send SIGINT for graceful shutdown
 			const { error: killError } = await tryAsync({
 				try: async () => {
@@ -517,6 +580,8 @@ export function createFfmpegRecorderService(): RecorderService {
 		cancelRecording: async ({
 			sendStatus,
 		}): Promise<Result<CancelRecordingResult, RecorderServiceError>> => {
+			const ready = await initialized;
+			if (ready.error) return Err(ready.error);
 			const session = sessionState.value;
 			if (!session) {
 				return Ok({ status: 'no-recording' });
@@ -530,8 +595,9 @@ export function createFfmpegRecorderService(): RecorderService {
 			// Store the path before clearing the session
 			const pathToCleanup = session.outputPath;
 
-			// Clear the session and kill the process
-			await clearSession();
+			// Never delete audio or release session state before confirmed cleanup.
+			const cleared = await clearSession();
+			if (cleared.error) return Err(cleared.error);
 
 			// Delete the output file if it exists
 			if (pathToCleanup) {

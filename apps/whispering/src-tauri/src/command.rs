@@ -19,7 +19,7 @@ pub struct CommandOutput {
 
 /// Parse a command string into program and arguments.
 /// Handles quoted arguments properly for direct execution without shell wrapper.
-fn parse_command(command: &str) -> (String, Vec<String>) {
+pub(crate) fn parse_command(command: &str) -> (String, Vec<String>) {
     // Match quoted strings or non-space sequences
     let re = regex::Regex::new(r#"(?:[^\s"]+|"[^"]*")+"#).unwrap();
     let parts: Vec<String> = re

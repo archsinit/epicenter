@@ -1,13 +1,17 @@
 //! Main-window IPC and Quit integration. Kept outside the portable meeting
 //! module tree so core tests need no Tauri runtime or platform capture access.
+use crate::meeting::capture_process::{read_exit_receipt, write_exit_receipt, CaptureProcessInfo};
 use crate::meeting::controller::{ExitDecision, MeetingController};
 use crate::meeting::request::StartMeetingParams;
 use crate::meeting::sources::CaptureSources;
 use crate::meeting::worker::{MeetingPhase, MeetingProgress};
 use serde::{Deserialize, Serialize};
 use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{Manager, State, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
@@ -203,6 +207,133 @@ pub async fn meeting_pause_screenshots(
     blocking(move || controller.pause_screenshots(paused)).await
 }
 
+fn receipt_root(app: &tauri::AppHandle) -> io::Result<PathBuf> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| io::Error::other(error.to_string()))?
+        .join("capture-process-exits"))
+}
+fn persist_process_exit(app: &tauri::AppHandle, info: &CaptureProcessInfo) -> io::Result<()> {
+    let root = receipt_root(app)?;
+    if let Some(parent) = root.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    write_exit_receipt(&root, info)
+}
+fn signal_owned_process(pid: u32) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use nix::{
+            errno::Errno,
+            sys::signal::{kill, Signal},
+            unistd::Pid,
+        };
+        match kill(
+            Pid::from_raw(i32::try_from(pid).map_err(io::Error::other)?),
+            Signal::SIGINT,
+        ) {
+            Ok(()) | Err(Errno::ESRCH) => Ok(()),
+            Err(Errno::EPERM) => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Permission denied stopping the owned recording process",
+            )),
+            Err(error) => Err(io::Error::other(error.to_string())),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Owned FFmpeg capture is supported on this fork's Mac target",
+        ))
+    }
+}
+fn stop_owned_ffmpeg(
+    app: &tauri::AppHandle,
+    controller: &MeetingController,
+    id: &str,
+) -> io::Result<CaptureProcessInfo> {
+    if controller.ffmpeg_status(id)?.is_some() {
+        let info = controller.stop_ffmpeg(
+            id,
+            signal_owned_process,
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )?;
+        persist_process_exit(app, &info)?;
+        return Ok(info);
+    }
+    if let Some(info) = read_exit_receipt(&receipt_root(app)?, id)? {
+        return Ok(info);
+    }
+    controller.note_unverified_ffmpeg()?;
+    Err(io::Error::other("The previous recording process cannot be verified. No saved PID was signalled. Stop its original recorder normally and keep the audio file for recovery."))
+}
+#[tauri::command]
+pub async fn capture_ffmpeg_spawn(
+    window: WebviewWindow,
+    command: String,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<CaptureProcessInfo> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || {
+        let (program, args) = crate::command::parse_command(&command);
+        if !matches!(Path::new(&program).file_name().and_then(|name| name.to_str()), Some("ffmpeg" | "ffmpeg.exe")) {
+            return Err(io::Error::other("Recording process must be FFmpeg"));
+        }
+        let mut cmd = Command::new(program);
+        cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit());
+        let info = controller.spawn_ffmpeg(&mut cmd)?;
+        std::thread::sleep(Duration::from_millis(100));
+        let status = controller.ffmpeg_status(&info.capture_id)?.ok_or_else(|| io::Error::other("Recording process ownership was lost"))?;
+        if !status.running {
+            stop_owned_ffmpeg(&app, &controller, &info.capture_id)?;
+            return Err(io::Error::other("FFmpeg exited during startup. Check the device, permissions and recording options; any output file has been kept."));
+        }
+        Ok(status)
+    }).await
+}
+#[tauri::command]
+pub async fn capture_ffmpeg_stop(
+    window: WebviewWindow,
+    capture_id: String,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<CaptureProcessInfo> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || stop_owned_ffmpeg(&app, &controller, &capture_id)).await
+}
+#[tauri::command]
+pub async fn capture_ffmpeg_restore(
+    window: WebviewWindow,
+    capture_id: Option<String>,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<CaptureProcessInfo> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || {
+        if let Some(id) = capture_id {
+            if let Some(info) = controller.ffmpeg_status(&id)? {
+                if info.running { return Ok(info); }
+                return stop_owned_ffmpeg(&app, &controller, &id);
+            }
+            match read_exit_receipt(&receipt_root(&app)?, &id) {
+                Ok(Some(info)) => return Ok(info),
+                Ok(None) => {},
+                Err(error) => { controller.note_unverified_ffmpeg()?; return Err(error); }
+            }
+        }
+        controller.note_unverified_ffmpeg()?;
+        Err(io::Error::other("A previous FFmpeg session cannot be verified. No process was signalled and no recording file was deleted."))
+    }).await
+}
+
 /// Intercept every normal ExitRequested route, not only the tray menu. No work
 /// is started on launch; with no meeting the existing exit behaviour is kept.
 pub fn handle_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
@@ -228,14 +359,24 @@ pub fn handle_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     let handle = app.clone();
     let finalizer_state = state.clone();
     let spawned = std::thread::Builder::new().name("meeting-quit-finalizer".into()).spawn(move || {
+        let process_failure = (|| -> io::Result<()> {
+            if !finalizer_state.controller.capture_gate()?.has_ffmpeg() { return Ok(()); }
+            if let Some(id) = finalizer_state.controller.ffmpeg_id()? {
+                stop_owned_ffmpeg(&handle, &finalizer_state.controller, &id)?;
+            }
+            if finalizer_state.controller.capture_gate()?.has_ffmpeg() {
+                return Err(io::Error::other("An unverified FFmpeg session remains; no unknown PID was signalled"));
+            }
+            Ok(())
+        })().err().map(|error| error.to_string());
         let failure = match finalizer_state.controller.stop_blocking() {
             Ok(Some(progress)) if matches!(progress.phase, MeetingPhase::Interrupted | MeetingPhase::Failed) => Some(progress.error.unwrap_or_else(|| "Recording was marked incomplete".into())),
             Err(error) => Some(error.to_string()),
             _ => None,
-        };
+        }.or(process_failure);
         let quit = if let Some(error) = failure {
             log::warn!("Meeting finalization could not fully complete: {error}");
-            handle.dialog().message(format!("The meeting could not be fully finalized. Local audio files have been kept for recovery.\n\n{error}\n\nQuit anyway?"))
+            handle.dialog().message(format!("The recording could not be fully finalized. Local audio files have been kept for recovery. An input/process may still be active; keeping the app open is safer until its recorder is stopped.\n\n{error}\n\nQuit anyway?"))
                 .title("Meeting recording")
                 .buttons(MessageDialogButtons::OkCancelCustom("Quit anyway".into(), "Keep app open".into()))
                 .blocking_show()

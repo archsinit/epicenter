@@ -89,6 +89,14 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if let Ok(Some(id)) = self.controller.ffmpeg_id() {
+            let _ = self.controller.stop_ffmpeg(
+                &id,
+                interrupt_fixture,
+                Duration::from_millis(100),
+                Duration::from_secs(2),
+            );
+        }
         let _ = self.controller.stop_blocking();
         let _ = std::fs::remove_dir_all(&self.root);
     }
@@ -100,6 +108,153 @@ fn wait_for(mut ready: impl FnMut() -> bool) {
         thread::sleep(Duration::from_millis(2));
     }
 }
+#[cfg(unix)]
+fn interrupt_fixture(pid: u32) -> io::Result<()> {
+    let status = std::process::Command::new("/bin/kill")
+        .args(["-INT", &pid.to_string()])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("Fixture signal failed"))
+    }
+}
+#[cfg(not(unix))]
+fn interrupt_fixture(_: u32) -> io::Result<()> {
+    Err(io::Error::other("Unix fixture only"))
+}
+
+#[cfg(unix)]
+#[test]
+fn owned_ffmpeg_fences_capture_and_lease_release_until_exit_is_confirmed() {
+    let fixture = Fixture::new();
+    let token = fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .unwrap();
+    let child = fixture
+        .controller
+        .spawn_ffmpeg(std::process::Command::new("/bin/sleep").arg("30"))
+        .unwrap();
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_meeting()
+        .is_err());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .ensure_cpal_allowed()
+        .is_err());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .end_dictation(&token)
+        .is_err());
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Finalize
+    );
+    let stopped = fixture
+        .controller
+        .stop_ffmpeg(
+            &child.capture_id,
+            interrupt_fixture,
+            Duration::from_millis(100),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+    assert!(!stopped.running);
+    fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .end_dictation(&token)
+        .unwrap();
+    fixture.controller.resolve_exit(false).unwrap();
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_meeting()
+        .is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn stale_process_key_never_signals_or_releases_a_newer_child() {
+    let fixture = Fixture::new();
+    let first = fixture
+        .controller
+        .spawn_ffmpeg(std::process::Command::new("/bin/sleep").arg("30"))
+        .unwrap();
+    fixture
+        .controller
+        .stop_ffmpeg(
+            &first.capture_id,
+            interrupt_fixture,
+            Duration::from_millis(100),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+    let second = fixture
+        .controller
+        .spawn_ffmpeg(std::process::Command::new("/bin/sleep").arg("30"))
+        .unwrap();
+    assert_ne!(first.capture_id, second.capture_id);
+    assert!(fixture
+        .controller
+        .stop_ffmpeg(
+            &first.capture_id,
+            |_| panic!("Must not signal another child"),
+            Duration::ZERO,
+            Duration::ZERO
+        )
+        .is_err());
+    assert!(
+        fixture
+            .controller
+            .ffmpeg_status(&second.capture_id)
+            .unwrap()
+            .unwrap()
+            .running
+    );
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_meeting()
+        .is_err());
+}
+
+#[test]
+fn unverified_legacy_session_is_not_treated_as_a_safe_capture_handoff() {
+    let fixture = Fixture::new();
+    fixture.controller.note_unverified_ffmpeg().unwrap();
+    assert!(fixture.controller.ffmpeg_id().unwrap().is_none());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_meeting()
+        .is_err());
+    assert!(fixture
+        .controller
+        .capture_gate()
+        .unwrap()
+        .begin_dictation()
+        .is_err());
+    assert_eq!(
+        fixture.controller.request_exit().unwrap(),
+        ExitDecision::Finalize
+    );
+}
+
 #[test]
 fn startup_claims_gate_before_factory_and_stop_releases_only_after_join() {
     let fixture = Fixture::new();

@@ -5,6 +5,12 @@ const root = new URL('../apps/whispering/src-tauri/src/', import.meta.url);
 const app = readFileSync(new URL('lib.rs', root), 'utf8');
 const commands = readFileSync(new URL('meeting/commands.rs', root), 'utf8');
 const cpal = readFileSync(new URL('recorder/commands.rs', root), 'utf8');
+const clientRoot = new URL(
+	'../apps/whispering/src/lib/services/recorder/',
+	import.meta.url,
+);
+const ffmpegClient = readFileSync(new URL('ffmpeg.ts', clientRoot), 'utf8');
+const cpalClient = readFileSync(new URL('cpal.ts', clientRoot), 'utf8');
 function command(name: string) {
 	const start = commands.indexOf(`pub async fn ${name}(`);
 	expect(start).toBeGreaterThan(-1);
@@ -19,6 +25,9 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		for (const name of [
 			'capture_acquire_dictation',
 			'capture_release_dictation',
+			'capture_ffmpeg_spawn',
+			'capture_ffmpeg_stop',
+			'capture_ffmpeg_restore',
 			'meeting_sources',
 			'meeting_request_permission',
 			'meeting_start',
@@ -48,6 +57,48 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'request_microphone_permission',
 		);
 		expect(command('meeting_start')).not.toContain('request_screen_permission');
+	});
+	test('Mac FFmpeg stop requires acknowledged exit before clearing state or reading audio', () => {
+		const start = ffmpegClient.indexOf('stopRecording: async');
+		const branch = ffmpegClient.indexOf(
+			"if (DESKTOP_PLATFORM === 'macos')",
+			start,
+		);
+		const source = ffmpegClient.slice(
+			branch,
+			ffmpegClient.indexOf('// Existing non-Mac stop path', branch),
+		);
+		const beforeStop = ffmpegClient.slice(start, branch);
+		expect(beforeStop.indexOf('await initialized')).toBeGreaterThan(-1);
+		expect(beforeStop.indexOf('await initialized')).toBeLessThan(
+			beforeStop.indexOf('const session = sessionState.value'),
+		);
+		expect(source).toContain('await ownedProcess.stop(session.captureId)');
+		expect(source.indexOf('if (stopped.error)')).toBeLessThan(
+			source.indexOf('sessionState.value = null'),
+		);
+		expect(source.indexOf('await ownedProcess.stop')).toBeLessThan(
+			source.indexOf('pathToBlob'),
+		);
+		for (const guess of ['child.kill', 'setTimeout', 'stat('])
+			expect(source).not.toContain(guess);
+	});
+	test('CPAL closes initialized sessions even with no recording ID and before delivering a Blob', () => {
+		const start = cpalClient.indexOf('stopRecording: async');
+		const stop = cpalClient.slice(
+			start,
+			cpalClient.indexOf('cancelRecording: async', start),
+		);
+		expect(stop.indexOf('await closeSession()')).toBeGreaterThan(-1);
+		expect(stop.indexOf('await closeSession()')).toBeLessThan(
+			stop.indexOf('FsServiceLive.pathToBlob'),
+		);
+		const noId = cpalClient.slice(
+			cpalClient.indexOf('if (!recordingId)'),
+			cpalClient.indexOf("title: '🛑 Cancelling'"),
+		);
+		expect(noId).toContain('await closeSession()');
+		expect(noId).toContain('if (closed.error)');
 	});
 	test('direct CPAL init/start are guarded; initialized streams remain tracked until close', () => {
 		for (const name of ['init_recording_session', 'start_recording']) {

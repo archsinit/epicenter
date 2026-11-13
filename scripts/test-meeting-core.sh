@@ -37,7 +37,7 @@ path = "lib.rs"
 ''' + dependencies)
 (bridge / 'lib.rs').write_text(''.join(
     '#[path = ' + json.dumps(str(module / (name + '.rs'))) + ']\npub mod ' + name + ';\n'
-    for name in ['audio', 'macos', 'schedule', 'storage', 'timeline', 'worker', 'backend_macos', 'sources', 'control', 'controller', 'request']))
+    for name in ['audio', 'macos', 'schedule', 'storage', 'timeline', 'worker', 'backend_macos', 'sources', 'control', 'controller', 'request', 'capture_process']))
 PY
 if [[ "$(uname -s)" == Darwin ]]; then
     xcrun clang -fobjc-arc -O2 -mmacosx-version-min=10.15 \

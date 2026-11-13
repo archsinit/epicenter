@@ -2,6 +2,7 @@
 //! operations is gate -> slot. Joining a worker happens with neither lock held,
 //! so status remains readable and new capture is rejected during finalization.
 
+use super::capture_process::{CaptureProcessInfo, OwnedCaptureProcess};
 use super::control::CaptureGate;
 use super::storage::MeetingManifest;
 use super::worker::{
@@ -9,7 +10,9 @@ use super::worker::{
 };
 use std::io;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::{Condvar, Mutex, MutexGuard};
+use std::time::Duration;
 
 #[derive(Default)]
 struct Slot {
@@ -32,11 +35,74 @@ pub struct MeetingController {
     gate: Mutex<CaptureGate>,
     slot: Mutex<Slot>,
     finalized: Condvar,
+    ffmpeg: Mutex<Option<OwnedCaptureProcess>>,
 }
 fn poisoned() -> io::Error {
     io::Error::other("Capture state unavailable; no new recording was started")
 }
 impl MeetingController {
+    pub fn spawn_ffmpeg(&self, command: &mut Command) -> io::Result<CaptureProcessInfo> {
+        let mut gate = self.capture_gate()?;
+        gate.ensure_ffmpeg_allowed()?;
+        let mut process = self.ffmpeg.lock().map_err(|_| poisoned())?;
+        if let Some(previous) = process.as_mut() {
+            if previous.status()?.running {
+                return Err(io::Error::other("A recording process is still active"));
+            }
+        }
+        let mut owned = OwnedCaptureProcess::spawn(command)?;
+        let info = owned.status()?;
+        gate.set_ffmpeg_open(info.running);
+        *process = Some(owned);
+        Ok(info)
+    }
+    pub fn ffmpeg_status(&self, id: &str) -> io::Result<Option<CaptureProcessInfo>> {
+        let mut process = self.ffmpeg.lock().map_err(|_| poisoned())?;
+        match process.as_mut() {
+            Some(process) if process.id() == id => process.status().map(Some),
+            _ => Ok(None),
+        }
+    }
+    pub fn ffmpeg_id(&self) -> io::Result<Option<String>> {
+        Ok(self
+            .ffmpeg
+            .lock()
+            .map_err(|_| poisoned())?
+            .as_ref()
+            .map(|process| process.id().to_owned()))
+    }
+    pub fn stop_ffmpeg(
+        &self,
+        id: &str,
+        signal: impl FnOnce(u32) -> io::Result<()>,
+        grace: Duration,
+        force_wait: Duration,
+    ) -> io::Result<CaptureProcessInfo> {
+        let result = {
+            let mut process = self.ffmpeg.lock().map_err(|_| poisoned())?;
+            let process = process
+                .as_mut()
+                .filter(|process| process.id() == id)
+                .ok_or_else(|| {
+                    io::Error::other(
+                        "Recording process is not owned by this session; no PID was signalled",
+                    )
+                })?;
+            process.stop(signal, grace, force_wait)
+        };
+        // Never clear a newer child's fence after a concurrent/stale stop.
+        let mut gate = self.capture_gate()?;
+        let mut process = self.ffmpeg.lock().map_err(|_| poisoned())?;
+        gate.set_ffmpeg_open(match process.as_mut() {
+            Some(process) => process.status().map(|info| info.running).unwrap_or(true),
+            None => false,
+        });
+        result
+    }
+    pub fn note_unverified_ffmpeg(&self) -> io::Result<()> {
+        self.capture_gate()?.note_unverified_ffmpeg();
+        Ok(())
+    }
     pub fn capture_gate(&self) -> io::Result<MutexGuard<'_, CaptureGate>> {
         self.gate.lock().map_err(|_| poisoned())
     }
@@ -196,7 +262,8 @@ impl MeetingController {
         }
         gate.begin_shutdown();
         Self::reap(&mut gate, &mut slot);
-        if slot.worker.is_none() && !slot.finishing && slot.failure.is_none() {
+        if slot.worker.is_none() && !slot.finishing && slot.failure.is_none() && !gate.has_ffmpeg()
+        {
             return Ok(ExitDecision::Allow);
         }
         if slot.exit_pending {

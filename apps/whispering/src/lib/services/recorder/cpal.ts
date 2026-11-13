@@ -34,6 +34,15 @@ type AudioRecording = {
  * @returns {RecorderService} A recorder service instance with methods for audio recording operations
  */
 export function createCpalRecorderService(): RecorderService {
+	async function closeSession() {
+		const result = await invoke<void>('close_recording_session');
+		if (result.error)
+			return RecorderServiceErr({
+				message:
+					'The audio session could not confirm closure. Audio files were retained; retry Cancel before another capture.',
+			});
+		return Ok(undefined);
+	}
 	/**
 	 * Enumerates available recording devices from the system.
 	 *
@@ -194,11 +203,14 @@ export function createCpalRecorderService(): RecorderService {
 			});
 			const { error: startRecordingError } =
 				await invoke<void>('start_recording');
-			if (startRecordingError)
+			if (startRecordingError) {
+				const closed = await closeSession();
 				return RecorderServiceErr({
 					message:
-						'Unable to start recording. Please check your microphone and try again.',
+						closed.error?.message ??
+						'Unable to start recording. The session was closed and any audio file was retained.',
 				});
+			}
 
 			return Ok(deviceOutcome);
 		},
@@ -222,6 +234,10 @@ export function createCpalRecorderService(): RecorderService {
 				});
 			}
 
+			// Stop alone leaves the CPAL stream initialized. Close before reading
+			// audio or reporting success so the meeting handoff has real evidence.
+			const closed = await closeSession();
+			if (closed.error) return Err(closed.error);
 			const { filePath } = audioRecording;
 			// Desktop recorder should always write to a file
 			if (!filePath) {
@@ -243,18 +259,6 @@ export function createCpalRecorderService(): RecorderService {
 				return RecorderServiceErr({
 					message: `Unable to read recording file: ${readRecordingFileError.message}`,
 				});
-			// Close the recording session after stopping
-			sendStatus({
-				title: '🔄 Closing Session',
-				description: 'Cleaning up recording resources...',
-			});
-			const { error: closeError } = await invoke<void>(
-				'close_recording_session',
-			);
-			if (closeError) {
-				// Log but don't fail the stop operation
-				console.error('Failed to close recording session:', closeError);
-			}
 
 			return Ok(blob);
 		},
@@ -282,6 +286,9 @@ export function createCpalRecorderService(): RecorderService {
 			}
 
 			if (!recordingId) {
+				// A failed Start or prior Stop can still own an initialized stream.
+				const closed = await closeSession();
+				if (closed.error) return Err(closed.error);
 				return Ok({ status: 'no-recording' });
 			}
 
@@ -294,6 +301,9 @@ export function createCpalRecorderService(): RecorderService {
 			// First get the recording data to know if there's a file to delete
 			const { data: audioRecording } =
 				await invoke<AudioRecording>('stop_recording');
+
+			const closed = await closeSession();
+			if (closed.error) return Err(closed.error);
 
 			// If there's a file path, delete the file using Tauri FS plugin
 			if (audioRecording?.filePath) {
@@ -311,19 +321,6 @@ export function createCpalRecorderService(): RecorderService {
 						description:
 							"We couldn't delete the recording file. Continuing with the cancellation process...",
 					});
-			}
-
-			// Close the recording session after cancelling
-			sendStatus({
-				title: '🔄 Closing Session',
-				description: 'Cleaning up recording resources...',
-			});
-			const { error: closeError } = await invoke<void>(
-				'close_recording_session',
-			);
-			if (closeError) {
-				// Log but don't fail the cancel operation
-				console.error('Failed to close recording session:', closeError);
 			}
 
 			return Ok({ status: 'cancelled' });

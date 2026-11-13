@@ -7,9 +7,10 @@ import {
 	type RecorderServiceError,
 } from './types';
 
-/** Not wired into the live services yet. Before activation, each backend must
- * prove cleanup really closes its input (notably FFmpeg process exit, not file
- * stabilization). VAD also needs a lease for its full listening lifetime.
+/** Not wired into the live services yet. Mac FFmpeg now confirms owned-child
+ * exit and Navigator/CPAL have explicit cleanup paths. Before activation, bind
+ * the full VAD listening lifetime too and provide explicit legacy-session
+ * recovery; never bypass an unverified saved FFmpeg session.
  *
  * Same recorder API/data. Only desktop capture admission/lifetime is added.
  * Never release on an unknown/failed cleanup and never discard a saved Blob

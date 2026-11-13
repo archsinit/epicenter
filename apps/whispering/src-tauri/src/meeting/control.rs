@@ -14,6 +14,8 @@ enum Owner {
 pub struct CaptureGate {
     owner: Option<Owner>,
     cpal_open: bool,
+    ffmpeg_open: bool,
+    ffmpeg_unverified: bool,
     closing: bool,
     sequence: u64,
 }
@@ -26,7 +28,7 @@ impl CaptureGate {
     }
     pub fn begin_dictation(&mut self) -> io::Result<String> {
         self.available()?;
-        if self.owner.is_some() || self.cpal_open {
+        if self.owner.is_some() || self.cpal_open || self.has_ffmpeg() {
             return Err(io::Error::other(
                 "Stop the active meeting or dictation before recording again",
             ));
@@ -40,6 +42,11 @@ impl CaptureGate {
         Ok(token)
     }
     pub fn end_dictation(&mut self, token: &str) -> io::Result<()> {
+        if self.cpal_open || self.has_ffmpeg() {
+            return Err(io::Error::other(
+                "Recording input has not confirmed closure",
+            ));
+        }
         match &self.owner {
             Some(Owner::Dictation(current)) if current == token => {
                 self.owner = None;
@@ -52,7 +59,7 @@ impl CaptureGate {
     }
     pub fn begin_meeting(&mut self) -> io::Result<()> {
         self.available()?;
-        if self.owner.is_some() || self.cpal_open {
+        if self.owner.is_some() || self.cpal_open || self.has_ffmpeg() {
             return Err(io::Error::other(
                 "Stop dictation/VAD and close its recording session before starting a meeting",
             ));
@@ -67,12 +74,30 @@ impl CaptureGate {
     }
     pub fn ensure_cpal_allowed(&self) -> io::Result<()> {
         self.available()?;
-        if self.owner == Some(Owner::Meeting) {
+        if self.owner == Some(Owner::Meeting) || self.has_ffmpeg() {
             return Err(io::Error::other(
                 "Stop the meeting before starting dictation",
             ));
         }
         Ok(())
+    }
+    pub fn ensure_ffmpeg_allowed(&self) -> io::Result<()> {
+        self.available()?;
+        if self.owner == Some(Owner::Meeting) || self.cpal_open || self.has_ffmpeg() {
+            return Err(io::Error::other(
+                "Stop the active capture before starting FFmpeg",
+            ));
+        }
+        Ok(())
+    }
+    pub fn set_ffmpeg_open(&mut self, open: bool) {
+        self.ffmpeg_open = open;
+    }
+    pub fn note_unverified_ffmpeg(&mut self) {
+        self.ffmpeg_unverified = true;
+    }
+    pub fn has_ffmpeg(&self) -> bool {
+        self.ffmpeg_open || self.ffmpeg_unverified
     }
     pub fn set_cpal_open(&mut self, open: bool) {
         self.cpal_open = open;
