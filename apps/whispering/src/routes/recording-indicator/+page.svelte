@@ -23,27 +23,36 @@
 	});
 	let levels = $state<number[]>(Array(24).fill(0));
 	let disconnected = $state(false);
+	let dragFailed = $state(false);
+	function startDrag() {
+		dragFailed = false;
+		invoke<void>('start_indicator_drag').catch(() => {
+			dragFailed = true;
+		});
+	}
 	const recording = $derived(snapshot.phase === 'recording');
 	const label = $derived(
-		disconnected
-			? 'Companion disconnected'
-			: snapshot.phase === 'error'
-				? 'Something went wrong'
-				: snapshot.phase === 'cleaning'
-					? 'Cleaning up'
-					: snapshot.phase === 'transcribing'
-						? 'Transcribing'
-						: snapshot.phase === 'preparing'
-							? 'Preparing microphone'
-							: recording && snapshot.level === null
-								? 'Recording · meter unavailable'
-								: recording && !snapshot.inputActive
-									? 'No microphone signal'
-									: recording && (snapshot.level ?? 0) < 0.003
-										? 'Listening · quiet'
-										: recording
-											? 'Listening'
-											: 'Ready',
+		dragFailed
+			? 'Could not move companion'
+			: disconnected
+				? 'Companion disconnected'
+				: snapshot.phase === 'error'
+					? 'Something went wrong'
+					: snapshot.phase === 'cleaning'
+						? 'Cleaning up'
+						: snapshot.phase === 'transcribing'
+							? 'Transcribing'
+							: snapshot.phase === 'preparing'
+								? 'Preparing microphone'
+								: recording && snapshot.level === null
+									? 'Recording · meter unavailable'
+									: recording && !snapshot.inputActive
+										? 'No microphone signal'
+										: recording && (snapshot.level ?? 0) < 0.003
+											? 'Listening · quiet'
+											: recording
+												? 'Listening'
+												: 'Ready',
 	);
 
 	onMount(() => {
@@ -78,8 +87,8 @@
 						? 250
 						: snapshot.phase === 'idle'
 							? reducedMotion.matches
-								? 250
-								: 80
+								? 100
+								: 40
 							: 40,
 				);
 		}
@@ -99,6 +108,9 @@
 		{label}
 		{disconnected}
 		gaze={snapshot.gaze}
+		warning={dragFailed ||
+			(recording && (snapshot.level === null || !snapshot.inputActive))}
+		onDrag={startDrag}
 	/>
 </div>
 
@@ -106,6 +118,9 @@
 	:global(html.indicator-window),
 	:global(html.indicator-window body) {
 		background: transparent !important;
+		border: 0 !important;
+		outline: 0 !important;
+		box-shadow: none !important;
 		margin: 0;
 		overflow: hidden;
 	}

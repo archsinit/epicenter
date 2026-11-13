@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { gazeAxis } from '$lib/components/companion-motion';
+	import { createCompanionRenderer } from '$lib/components/companion-renderer';
+
 	type Phase =
 		| 'idle'
 		| 'preparing'
@@ -13,12 +16,16 @@
 		label,
 		disconnected = false,
 		gaze = [0, 0],
+		warning = false,
+		onDrag,
 	}: {
 		phase: Phase;
 		levels: number[];
 		label: string;
 		disconnected?: boolean;
 		gaze?: number[];
+		warning?: boolean;
+		onDrag?: () => void;
 	} = $props();
 	const mode = $derived(
 		disconnected || phase === 'error'
@@ -29,294 +36,251 @@
 					? 'vortex'
 					: 'idle',
 	);
-	const x = $derived(gazeAxis(gaze[0]));
-	const y = $derived(gazeAxis(gaze[1]));
+	let canvas: HTMLCanvasElement;
+	let ready = $state(false);
+	let reduced = $state(false);
+
+	onMount(() => {
+		const renderer = createCompanionRenderer(canvas);
+		if (!renderer) return;
+		const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+		const updateMotion = () => {
+			reduced = media.matches;
+		};
+		updateMotion();
+		media.addEventListener('change', updateMotion);
+		let frame = 0,
+			previous = 0,
+			start = 0;
+		let wave = 0,
+			processing = 0,
+			yaw = 0,
+			pitch = 0;
+		let previousSignature = '';
+		function animate(now: number) {
+			frame = requestAnimationFrame(animate);
+			if (document.hidden || now - previous < 1000 / 24) return;
+			const dt = Math.min(100, now - previous);
+			previous = now;
+			if (!start) start = now;
+			const blend = reduced ? 1 : 1 - Math.exp(-dt / 180);
+			wave += ((mode === 'wave' ? 1 : 0) - wave) * blend;
+			processing += ((mode === 'vortex' ? 1 : 0) - processing) * blend;
+			yaw += ((reduced ? 0 : gazeAxis(gaze[0]) * 0.65) - yaw) * blend;
+			pitch += ((reduced ? 0 : gazeAxis(gaze[1]) * 0.45) - pitch) * blend;
+			const time = reduced ? 0 : (now - start) / 1000;
+			const cycle = time % 7.8;
+			const blink =
+				!reduced && cycle > 4.2 && cycle < 4.42
+					? Math.sin(((cycle - 4.2) / 0.22) * Math.PI)
+					: 0;
+			const signature = `${mode}:${warning}:${disconnected}`;
+			if (reduced && ready && signature === previousSignature) return;
+			ready =
+				renderer?.draw({
+					time,
+					wave,
+					processing,
+					yaw,
+					pitch,
+					blink,
+					failure: mode === 'error' ? 1 : 0,
+				}) ?? false;
+			previousSignature = signature;
+		}
+		frame = requestAnimationFrame(animate);
+		return () => {
+			cancelAnimationFrame(frame);
+			media.removeEventListener('change', updateMotion);
+			renderer.dispose();
+		};
+	});
 </script>
 
 <div
 	class="companion"
 	data-mode={mode}
-	class:cleaning={phase === 'cleaning'}
-	style:--look-x={x}
-	style:--look-y={y}
+	data-renderer={ready ? 'webgl' : 'fallback'}
+	data-motion={reduced ? 'reduced' : 'full'}
 >
-	<div class="creature" aria-hidden="true">
-		<div class="aura">
-			<img
-				class="smoke smoke-primary"
-				src="/companion/idle-smoke.png"
-				alt=""
-				draggable="false"
-			/>
-			<img
-				class="smoke smoke-secondary"
-				src="/companion/idle-smoke.png"
-				alt=""
-				draggable="false"
-			/>
-		</div>
-		<div class="vortex">
-			<img src="/companion/vortex.png" alt="" draggable="false" />
-		</div>
-		<div class="head-position">
-			<div class="head-bob">
-				<div class="head-look">
-					<img
-						class="face"
-						src="/companion/idle-head.png"
-						alt=""
-						draggable="false"
-					/>
-					<span class="eyelid left"></span><span class="eyelid right"></span>
-				</div>
-			</div>
-		</div>
-		<div class="waveform">
-			<div class="wave-baseline"></div>
-			{#each levels as level, index (index)}
-				<span style:height="{2 + Math.max(0, Math.min(1, level)) * 46}px"
-				></span>
+	<canvas bind:this={canvas} class:ready aria-hidden="true"></canvas>
+	{#if !ready}
+		<div class="fallback" aria-hidden="true">
+			{#each Array(12) as _, index}
+				<span style:--i={index}></span>
 			{/each}
+			{#if mode === 'idle' || mode === 'error'}<img
+					src="/companion/idle-head.png"
+					alt=""
+				/>{/if}
 		</div>
+	{/if}
+	<div class="waveform" class:visible={mode === 'wave'} aria-hidden="true">
+		{#each levels as level, index (index)}
+			<span style:height="{1 + Math.max(0, Math.min(1, level)) * 23}px"></span>
+		{/each}
 	</div>
-	<div
-		class="status"
-		class:resting={phase === 'idle' && !disconnected}
-		class:failure={mode === 'error'}
-		role="status"
-		aria-live="polite"
-		aria-atomic="true"
+	<button
+		class="drag-target"
+		class:wide={mode === 'wave'}
+		tabindex="-1"
+		aria-label="Drag Gastly"
+		onpointerdown={(event) => {
+			if (event.button === 0) {
+				event.preventDefault();
+				onDrag?.();
+			}
+		}}
+	></button>
+	{#if mode === 'error' || warning}<span
+			class="warning"
+			class:error={mode === 'error'}
+			aria-hidden="true"
+		></span>{/if}
+	<span class="status" role="status" aria-live="polite" aria-atomic="true"
+		>{label}</span
 	>
-		{label}
-	</div>
 </div>
 
 <style>
 	.companion {
-		width: 360px;
-		height: 240px;
 		position: relative;
+		width: 180px;
+		height: 120px;
 		pointer-events: none;
-		font:
-			11px/1.3 -apple-system,
-			BlinkMacSystemFont,
-			sans-serif;
-		color: #faf5ff;
 		isolation: isolate;
+		background: transparent;
+		border: 0;
+		outline: 0;
+		box-shadow: none;
 	}
-	.creature {
-		position: absolute;
-		inset: 0 0 28px;
-	}
-	.aura,
-	.vortex {
-		position: absolute;
-		width: 240px;
-		height: 214px;
-		left: 60px;
-		top: 0;
-		transition:
-			transform 650ms ease-in-out,
-			opacity 500ms ease,
-			filter 400ms ease;
-	}
-	.smoke,
-	.vortex img {
-		width: 100%;
-		height: 100%;
-		object-fit: contain;
-	}
-	.smoke {
-		position: absolute;
-		inset: 0;
-	}
-	.smoke-primary {
-		animation: vapor 11s ease-in-out infinite alternate;
-	}
-	.smoke-secondary {
-		opacity: 0.32;
-		animation: wisps 17s ease-in-out infinite alternate;
-	}
-	.head-position {
-		position: absolute;
-		left: 145px;
-		top: 70px;
-		width: 70px;
-		height: 70px;
-		transition:
-			opacity 250ms ease,
-			transform 650ms ease-in-out;
-	}
-	.head-bob {
-		width: 100%;
-		height: 100%;
-		animation: float 5.5s ease-in-out infinite;
-	}
-	.head-look {
-		position: relative;
-		width: 100%;
-		height: 100%;
-		transform: translate(calc(var(--look-x) * 3px), calc(var(--look-y) * 2px))
-			rotate(calc(var(--look-x) * 5deg));
-		transition: transform 260ms ease-out;
-	}
-	.face {
+	canvas {
 		display: block;
-		width: 100%;
-		height: 100%;
-	}
-	.eyelid {
-		position: absolute;
-		top: 34%;
-		width: 34%;
-		height: 34%;
-		background: linear-gradient(#32233f, #211829);
-		transform-origin: top;
-		animation: blink 8.7s linear infinite;
-		transform: scaleY(0);
-	}
-	.left {
-		left: 12%;
-		clip-path: polygon(0 0, 100% 52%, 95% 85%, 70% 100%, 28% 95%, 6% 68%);
-	}
-	.right {
-		right: 12%;
-		clip-path: polygon(100% 0, 0 52%, 5% 85%, 30% 100%, 72% 95%, 94% 68%);
-	}
-	.vortex {
+		width: 180px;
+		height: 120px;
 		opacity: 0;
-		transform: scale(0.3);
 	}
-	.vortex img {
-		animation: swirl 8s linear infinite;
-		animation-play-state: paused;
+	canvas.ready {
+		opacity: 1;
 	}
 	.waveform {
 		position: absolute;
-		left: 65px;
-		top: 75px;
-		width: 230px;
-		height: 60px;
+		top: 39px;
+		left: 32px;
+		width: 116px;
+		height: 27px;
 		display: flex;
-		align-items: center;
 		justify-content: center;
-		gap: 5px;
+		align-items: center;
+		gap: 2.5px;
 		opacity: 0;
-		transform: scaleX(0.25);
-		transition:
-			opacity 350ms ease,
-			transform 650ms ease-in-out;
+		transition: opacity 350ms ease;
 	}
-	.waveform > span {
-		z-index: 1;
-		width: 3px;
-		border-radius: 4px;
-		background: #e9c5ff;
-		box-shadow:
-			0 0 5px #c676ff,
-			0 0 12px #913cff;
+	.waveform.visible {
+		opacity: 1;
+	}
+	.waveform span {
+		width: 1.5px;
+		border-radius: 2px;
+		background: #eedaff;
+		box-shadow: 0 0 4px #c779ff;
 		transition: height 60ms linear;
 	}
-	.wave-baseline {
+	.drag-target {
 		position: absolute;
-		inset: 29px 5px auto;
-		height: 1px;
-		background: linear-gradient(90deg, transparent, #d4a5fa, transparent);
-		box-shadow: 0 0 12px #b34dff;
+		left: 35px;
+		top: 3px;
+		width: 110px;
+		height: 100px;
+		clip-path: ellipse(50% 50%);
+		pointer-events: auto;
+		cursor: grab;
+		touch-action: none;
+		padding: 0;
+		margin: 0;
+		border: 0;
+		outline: 0;
+		box-shadow: none;
+		background: transparent;
+		-webkit-app-region: no-drag;
+	}
+	.drag-target.wide {
+		left: 8px;
+		top: 29px;
+		width: 164px;
+		height: 48px;
+	}
+	.drag-target:active {
+		cursor: grabbing;
 	}
 	.status {
 		position: absolute;
-		bottom: 13px;
-		left: 14px;
-		right: 14px;
-		width: fit-content;
-		max-width: 332px;
-		margin: auto;
-		padding: 5px 10px;
-		border-radius: 12px;
-		background: #191020e8;
-		text-align: center;
-		text-shadow: 0 1px 2px #000;
-		transition: opacity 200ms ease;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border: 0;
 	}
-	.resting {
-		opacity: 0;
+	.warning {
+		position: absolute;
+		left: 87px;
+		top: 98px;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #e7b667;
+		box-shadow: 0 0 5px #e7b66760;
 	}
-	.failure {
-		color: #ffd2df;
+	.warning.error {
+		background: #fb7185;
+		box-shadow: 0 0 5px #fb718560;
 	}
-	[data-mode='wave'] .aura {
-		transform: scale(1.4, 0.52);
+	.fallback {
+		position: absolute;
+		inset: 0;
 	}
-	[data-mode='wave'] .head-position {
-		opacity: 0;
-		transform: scale(1.8, 0.08);
+	.fallback img {
+		position: absolute;
+		width: 35px;
+		height: 35px;
+		left: 72.5px;
+		top: 35px;
 	}
-	[data-mode='wave'] .waveform {
-		opacity: 1;
-		transform: scaleX(1);
+	.fallback span {
+		position: absolute;
+		left: 50px;
+		top: 17px;
+		width: 80px;
+		height: 80px;
+		border-radius: 50%;
+		background: radial-gradient(
+			ellipse,
+			#9351c92a,
+			#a166d918 35%,
+			transparent 68%
+		);
+		animation: billow calc(4s + var(--i) * 0.17s) ease-in-out infinite alternate;
+		animation-delay: calc(var(--i) * -0.6s);
 	}
-	[data-mode='vortex'] .head-position {
-		opacity: 0;
-		transform: scale(0.1) rotate(100deg);
-	}
-	[data-mode='vortex'] .aura {
-		opacity: 0.22;
-		transform: rotate(45deg) scale(0.92);
-	}
-	[data-mode='vortex'] .vortex {
-		opacity: 1;
-		transform: scale(1);
-	}
-	[data-mode='vortex'] .vortex img {
-		animation-play-state: running;
-	}
-	.cleaning .vortex {
-		filter: hue-rotate(18deg) brightness(1.13);
-	}
-	[data-mode='error'] .aura {
-		filter: hue-rotate(35deg);
-	}
-	@keyframes float {
-		0%,
-		100% {
-			transform: translateY(0) rotate(-2deg);
-		}
-		50% {
-			transform: translateY(-5px) rotate(2deg);
-		}
-	}
-	@keyframes vapor {
+	@keyframes billow {
 		from {
-			transform: rotate(-7deg) scale(0.97);
+			transform: translate(
+					calc(sin(var(--i)) * 18px),
+					calc(cos(var(--i)) * 16px)
+				)
+				scale(0.55);
+			opacity: 0.25;
 		}
 		to {
-			transform: rotate(9deg) scale(1.04);
-		}
-	}
-	@keyframes wisps {
-		from {
-			transform: rotate(12deg) scale(1.04, 0.96);
-		}
-		to {
-			transform: rotate(-14deg) scale(0.96, 1.04);
-		}
-	}
-	@keyframes swirl {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-	@keyframes blink {
-		0%,
-		44%,
-		47%,
-		100% {
-			transform: scaleY(0);
-		}
-		45%,
-		46% {
-			transform: scaleY(1);
+			transform: translate(
+					calc(cos(var(--i)) * 25px),
+					calc(sin(var(--i)) * 24px)
+				)
+				scale(1.2);
+			opacity: 0.8;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
@@ -325,9 +289,6 @@
 		*::after {
 			animation: none !important;
 			transition: none !important;
-		}
-		.head-look {
-			transform: none;
 		}
 	}
 </style>

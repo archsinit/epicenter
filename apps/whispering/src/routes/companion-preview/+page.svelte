@@ -95,8 +95,8 @@
 			>
 		</footer>
 		<p class="note">
-			First texture-based prototype, not a fluid simulation. Independent pupil
-			motion and success animation are not wired yet.
+			Procedural evolving smoke and a turning textured sphere, not a fluid
+			simulation. Success animation is not wired yet.
 		</p>
 	</main>
 {:else}

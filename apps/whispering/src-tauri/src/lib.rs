@@ -164,6 +164,7 @@ pub async fn run() {
         menu_bar::set_tray_recording,
         indicator::set_indicator_state,
         indicator::get_indicator_state,
+        indicator::start_indicator_drag,
         mouse_shortcuts::configure_mouse_bindings,
         mouse_shortcuts::mouse_shortcuts_active,
         simulate_enter_keystroke,
