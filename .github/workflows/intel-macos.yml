@@ -12,6 +12,8 @@ on:
       - 'scripts/test-intel-verification.sh'
       - 'scripts/no-telemetry.test.ts'
       - 'scripts/menu-bar.test.ts'
+      - 'scripts/test-meeting-native.sh'
+      - 'scripts/test-meeting-core.sh'
       - '.github/workflows/intel-macos.yml'
 
 permissions:
@@ -54,12 +56,14 @@ jobs:
             scripts/integration/gastly-travel-host-test.m \
             -framework AppKit -framework QuartzCore -o /tmp/gastly-travel-host-test
           /tmp/gastly-travel-host-test
+      - name: Test synthetic native meeting capture bridge
+        run: bash scripts/test-meeting-native.sh
       - name: Build Intel Mac app
         working-directory: apps/whispering
         env:
           APPLE_SIGNING_IDENTITY: '-'
         run: bun tauri build --target x86_64-apple-darwin --bundles app
-      - name: Test native audio meter and mouse policy
+      - name: Test native audio meter, mouse and meeting core
         working-directory: apps/whispering/src-tauri
         run: cargo test --lib --target x86_64-apple-darwin
       - name: Verify Intel bundle and smoke-test app startup

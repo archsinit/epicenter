@@ -9,6 +9,7 @@ pub mod indicator;
 #[cfg(target_os = "macos")]
 mod indicator_panel;
 pub mod menu_bar;
+pub mod meeting;
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, close_recording_session, enumerate_recording_devices,
