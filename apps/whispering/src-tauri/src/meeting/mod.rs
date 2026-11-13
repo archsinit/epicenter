@@ -2,6 +2,7 @@
 //! Application IPC is registered separately; importing never starts capture.
 
 pub mod audio;
+pub mod audio_recovery;
 #[cfg(target_os = "macos")]
 pub mod backend_macos;
 pub mod capture_process;

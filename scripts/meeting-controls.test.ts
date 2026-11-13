@@ -143,6 +143,22 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(command('meeting_start')).toContain('menu_bar::meeting_transition');
 		expect(command('meeting_status')).toContain('sync_meeting_mark(');
 	});
+	test('audio recovery is a local copy engine, unexposed until maintenance admission and confirmation exist', () => {
+        const engine = readFileSync(new URL('meeting/audio_recovery.rs', root), 'utf8');
+        for (const unsafe of ['remove_file(', 'remove_dir(', 'MacMeetingBackend', 'request_permission(', 'reqwest', 'open_screenshot_for_local_preview(', 'open_audio_for_transcription('])
+            expect(engine).not.toContain(unsafe);
+        expect(engine).toContain('mix_tracks(&mut store');
+        expect(engine).toContain('store.finish(self.preview.duration_ms, true)');
+        expect(engine).toContain('"captureCompletenessVerified": false');
+        expect(engine).toContain('"screenshotsRemainInSource": true');
+        expect(engine).toContain('MAX_RECOVERY_DIRECTORY_ENTRIES');
+        expect(engine).toContain('MAX_SOURCE_BYTES');
+        expect(engine).not.toContain('impl Deserialize for AudioRecoveryPlan');
+        expect(commands).not.toContain('audio_recovery::');
+        expect(app).not.toContain('meeting_commands::meeting_recover_audio');
+        const library = readFileSync(new URL('meeting/library.rs', root), 'utf8');
+        expect(library).not.toContain('audio_recovery::');
+    });
 	test('bounded Quit observes one cleanup job without late auto-exit or admission release', () => {
         const monitor = commands.slice(commands.indexOf('pub fn handle_exit('), commands.indexOf('fn finalize_native_capture('));
         const cleanup = commands.slice(commands.indexOf('fn finalize_native_capture('));

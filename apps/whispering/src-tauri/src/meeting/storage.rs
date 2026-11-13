@@ -481,7 +481,8 @@ pub(crate) fn checked_meeting_directory(root: &Path, id: &str) -> io::Result<Pat
     Ok(directory)
 }
 
-fn open_local_file(directory: &Path, relative: &str) -> io::Result<File> {
+// Callers supply storage-validated relative asset names, never raw IPC paths.
+pub(crate) fn open_local_file(directory: &Path, relative: &str) -> io::Result<File> {
     let path = directory.join(relative);
     let metadata = fs::symlink_metadata(&path)?;
     if !metadata.is_file()
