@@ -42,6 +42,10 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'meeting_read_mixed_audio',
 			'meeting_read_screenshot',
 			'meeting_reveal_folder',
+			'meeting_prepare_recovery',
+			'meeting_execute_recovery',
+			'meeting_recovery_status',
+			'meeting_cancel_recovery',
 		]) {
 			expect(command(name)).toContain('main_window(&window)?');
 			expect(app).toContain(`meeting_commands::${name},`);
@@ -180,7 +184,26 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
         expect(cleanup).toContain('maintenance_result()');
         expect(commands).not.toContain('recover_audio_copy('); // not yet exposed without user confirmation
     });
-	test('audio recovery is a local copy engine, unexposed until maintenance admission and confirmation exist', () => {
+	test('recovery IPC uses native review tokens, confirmation and status without webview paths', () => {
+        expect(command('meeting_prepare_recovery').replace(/\s/g, '')).toContain('recovery.prepare(&state.controller,&meeting_root(&app)?,&id)');
+        expect(command('meeting_execute_recovery').replace(/\s/g, '')).toContain('recovery.execute(&state.controller,&token,confirmed)');
+        expect(command('meeting_cancel_recovery')).toContain('recovery.cancel(&token)');
+        const status = command('meeting_recovery_status');
+        expect(status).toContain('recovery.status()');
+        for (const unsafe of ['recover_audio_copy(', 'reconstruct(', 'prepare_audio_recovery(', 'recovery.execute('])
+            expect(status).not.toContain(unsafe);
+        const execute = command('meeting_execute_recovery');
+        expect(execute).not.toContain('root:');
+        expect(execute).not.toContain('output');
+        expect(execute).not.toContain('AudioRecoveryPlan');
+        const transactions = readFileSync(new URL('meeting/recovery_transaction.rs', root), 'utf8');
+        expect(transactions).toContain('if !confirmed');
+        expect(transactions).toContain('review.plan.take()');
+        expect(transactions.replace(/\s/g, '')).toContain('RecoveryPhase::Running|RecoveryPhase::Completed');
+        for (const unsafe of ['remove_file(', 'MacMeetingBackend', 'request_permission(', 'reqwest', 'transcribe('])
+            expect(transactions).not.toContain(unsafe);
+    });
+	test('audio recovery remains a local copy engine behind native transactions, not raw webview paths', () => {
         const engine = readFileSync(new URL('meeting/audio_recovery.rs', root), 'utf8');
         for (const unsafe of ['remove_file(', 'remove_dir(', 'MacMeetingBackend', 'request_permission(', 'reqwest', 'open_screenshot_for_local_preview(', 'open_audio_for_transcription('])
             expect(engine).not.toContain(unsafe);

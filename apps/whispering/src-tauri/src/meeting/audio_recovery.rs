@@ -20,7 +20,7 @@ pub const MAX_RECOVERY_DIRECTORY_ENTRIES: usize = 10_000;
 const MAX_SOURCE_BYTES: u64 = 44 + 48_000 * 60 * 2;
 const MAX_SIDECAR_BYTES: u64 = 1_024;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoveryPreview {
     pub source_id: String,

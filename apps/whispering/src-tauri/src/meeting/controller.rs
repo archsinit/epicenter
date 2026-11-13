@@ -2,7 +2,7 @@
 //! operations is gate -> slot. Joining a worker happens with neither lock held,
 //! so status remains readable and new capture is rejected during finalization.
 
-use super::audio_recovery::{self, RecoveryPreview};
+use super::audio_recovery::{self, AudioRecoveryPlan, RecoveryPreview};
 use super::capture_process::{CaptureProcessInfo, OwnedCaptureProcess};
 use super::control::CaptureGate;
 use super::storage::MeetingManifest;
@@ -61,7 +61,8 @@ impl MeetingController {
         }
     }
     /// Explicit synchronous filesystem action, for a background caller only.
-    /// IPC/UI confirmation is not exposed yet. The root must be native-owned;
+    /// Raw helper is not exposed by IPC; commands use confirmed transactions.
+    /// The root must be native-owned;
     /// no webview chooses a path, output ID, source type or timing.
     pub fn recover_audio_copy(
         &self,
@@ -69,18 +70,36 @@ impl MeetingController {
         source_id: &str,
     ) -> io::Result<RecoveredAudioCopy> {
         self.with_maintenance(|| {
-            let plan = audio_recovery::inspect(root, source_id)?;
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(io::Error::other)?;
-            let id = format!(
-                "recovered-{}-{}",
-                now.as_nanos(),
-                RECOVERY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-            );
-            let preview = plan.reconstruct(&id)?;
-            Ok(RecoveredAudioCopy { id, preview })
+            Self::reconstruct_recovery_plan(audio_recovery::inspect(root, source_id)?)
         })
+    }
+
+    pub(crate) fn prepare_audio_recovery(
+        &self,
+        root: &Path,
+        source_id: &str,
+    ) -> io::Result<AudioRecoveryPlan> {
+        self.with_maintenance(|| audio_recovery::inspect(root, source_id))
+    }
+
+    pub(crate) fn execute_audio_recovery(
+        &self,
+        plan: AudioRecoveryPlan,
+    ) -> io::Result<RecoveredAudioCopy> {
+        self.with_maintenance(|| Self::reconstruct_recovery_plan(plan))
+    }
+
+    fn reconstruct_recovery_plan(plan: AudioRecoveryPlan) -> io::Result<RecoveredAudioCopy> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(io::Error::other)?;
+        let id = format!(
+            "recovered-{}-{}",
+            now.as_nanos(),
+            RECOVERY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
+        let preview = plan.reconstruct(&id)?;
+        Ok(RecoveredAudioCopy { id, preview })
     }
 
     /// No hardware or detached work may be created/returned by this operation.

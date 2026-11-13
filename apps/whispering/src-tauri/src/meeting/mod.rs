@@ -14,6 +14,7 @@ pub mod local_folder;
 pub mod macos;
 pub mod quit;
 pub mod recovery;
+pub mod recovery_transaction;
 pub mod request;
 pub mod schedule;
 pub mod sources;

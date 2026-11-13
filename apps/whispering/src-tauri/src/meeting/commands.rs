@@ -20,6 +20,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 pub struct MeetingAppState {
     pub controller: Arc<MeetingController>,
     exit_task: Arc<AtomicBool>,
+    recovery: Arc<crate::meeting::recovery_transaction::RecoveryTransactions>,
     quit_finalizer: Arc<QuitFinalizer>,
     exit_approved: Arc<AtomicBool>,
 }
@@ -32,6 +33,9 @@ impl Default for MeetingAppState {
         Self {
             controller: Arc::new(controller),
             exit_task: Arc::new(AtomicBool::new(false)),
+            recovery: Arc::new(
+                crate::meeting::recovery_transaction::RecoveryTransactions::default(),
+            ),
             quit_finalizer: Arc::new(QuitFinalizer::default()),
             exit_approved: Arc::new(AtomicBool::new(false)),
         }
@@ -384,6 +388,59 @@ pub async fn meeting_read_screenshot(
             .map(tauri::ipc::Response::new)
     })
     .await
+}
+
+/// Explicit metadata-only review. No output root, ID or plan comes from JS.
+#[tauri::command]
+pub async fn meeting_prepare_recovery(
+    window: WebviewWindow,
+    id: String,
+    app: tauri::AppHandle,
+    state: State<'_, MeetingAppState>,
+) -> Result<crate::meeting::recovery_transaction::RecoveryStatus> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    blocking(move || {
+        state
+            .recovery
+            .prepare(&state.controller, &meeting_root(&app)?, &id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn meeting_execute_recovery(
+    window: WebviewWindow,
+    token: String,
+    confirmed: bool,
+    state: State<'_, MeetingAppState>,
+) -> Result<crate::meeting::recovery_transaction::RecoveryStatus> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    // Blocking task retains native ownership even if the webview loses/drops
+    // its acknowledgement. Retrying this token observes the same operation.
+    blocking(move || state.recovery.execute(&state.controller, &token, confirmed)).await
+}
+
+#[tauri::command]
+pub async fn meeting_recovery_status(
+    window: WebviewWindow,
+    state: State<'_, MeetingAppState>,
+) -> Result<Option<crate::meeting::recovery_transaction::RecoveryStatus>> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    blocking(move || state.recovery.status()).await
+}
+
+#[tauri::command]
+pub async fn meeting_cancel_recovery(
+    window: WebviewWindow,
+    token: String,
+    state: State<'_, MeetingAppState>,
+) -> Result<crate::meeting::recovery_transaction::RecoveryStatus> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    blocking(move || state.recovery.cancel(&token)).await
 }
 
 /// Explicit local action; accepts an ID only and never returns a filesystem path.
