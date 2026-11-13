@@ -4,35 +4,11 @@ import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { WhisperingErr, type WhisperingError } from '$lib/result';
 import { getExtensionFromAudioBlob } from '$lib/services/_utils';
 import type { Settings } from '$lib/settings';
+import { buildOpenaiTranscriptionRequest, type OpenAIModel } from '$lib/services/transcription/cloud/openai-request';
 
 const customFetch = window.__TAURI_INTERNALS__ ? tauriFetch : undefined;
 
-export const OPENAI_TRANSCRIPTION_MODELS = [
-	{
-		name: 'whisper-1',
-		description:
-			"OpenAI's flagship speech-to-text model with multilingual support. Reliable and accurate transcription for a wide variety of use cases.",
-		cost: '$0.36/hour',
-	},
-	{
-		name: 'gpt-4o-transcribe',
-		description:
-			'GPT-4o powered transcription with enhanced understanding and context. Best for complex audio requiring deep comprehension.',
-		cost: '$0.36/hour',
-	},
-	{
-		name: 'gpt-4o-mini-transcribe',
-		description:
-			'Cost-effective GPT-4o mini transcription model. Good balance of performance and cost for standard transcription needs.',
-		cost: '$0.18/hour',
-	},
-] as const satisfies {
-	name: OpenAI.Audio.AudioModel;
-	description: string;
-	cost: string;
-}[];
-
-export type OpenAIModel = (typeof OPENAI_TRANSCRIPTION_MODELS)[number];
+export { OPENAI_TRANSCRIPTION_MODELS, type OpenAIModel } from '$lib/services/transcription/cloud/openai-request';
 
 const MAX_FILE_SIZE_MB = 25 as const;
 
@@ -123,18 +99,7 @@ export function createOpenaiTranscriptionService() {
 						dangerouslyAllowBrowser: true,
 						fetch: customFetch,
 						...(options.baseURL && { baseURL: options.baseURL }),
-					}).audio.transcriptions.create({
-						file,
-						model: options.modelName,
-						language:
-							options.outputLanguage !== 'auto'
-								? options.outputLanguage
-								: undefined,
-						prompt: options.prompt || undefined,
-						temperature: options.temperature
-							? Number.parseFloat(options.temperature)
-							: undefined,
-					}),
+					}).audio.transcriptions.create(buildOpenaiTranscriptionRequest(file, options)),
 				catch: (error) => {
 					// Check if it's NOT an OpenAI API error
 					if (!(error instanceof OpenAI.APIError)) {

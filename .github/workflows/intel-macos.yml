@@ -46,7 +46,7 @@ jobs:
       - name: Check frontend types
         run: bun run --cwd apps/whispering check
       - name: Test fork indicator, cleanup and input policies
-        run: bun test scripts/no-telemetry.test.ts scripts/menu-bar.test.ts apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts apps/whispering/src/lib/components/companion-motion.test.ts
+        run: bun test scripts/no-telemetry.test.ts scripts/menu-bar.test.ts apps/whispering/src/lib/query/indicator.test.ts apps/whispering/src/lib/query/cleanup-policy.test.ts apps/whispering/src/lib/services/hold-gate.test.ts apps/whispering/src/lib/components/companion-motion.test.ts apps/whispering/src/lib/services/transcription/cloud/openai-request.test.ts
       - name: Build Intel Mac app
         working-directory: apps/whispering
         env:
