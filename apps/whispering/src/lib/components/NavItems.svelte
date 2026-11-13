@@ -11,6 +11,8 @@
 	import Database from '@lucide/svelte/icons/database';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import ListIcon from '@lucide/svelte/icons/list';
+	import FolderIcon from '@lucide/svelte/icons/folder-open';
+	import { IS_MACOS } from '$lib/constants/platform';
 	import Minimize2Icon from '@lucide/svelte/icons/minimize-2';
 	import MoonIcon from '@lucide/svelte/icons/moon';
 	import MoreVerticalIcon from '@lucide/svelte/icons/more-vertical';
@@ -32,6 +34,7 @@
 	);
 
 	const navItems = [
+		...(window.__TAURI_INTERNALS__ && IS_MACOS ? [{ label: 'Meetings', icon: FolderIcon, type: 'anchor' as const, href: '/meetings' }] : []),
 		{
 			label: 'Recordings',
 			icon: ListIcon,

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const MANIFEST_VERSION: u32 = 1;
+pub(crate) const MAX_MANIFEST_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -441,27 +442,61 @@ fn validate_manifest(manifest: &MeetingManifest) -> io::Result<()> {
     if manifest.version != MANIFEST_VERSION || !valid_id(&manifest.id) {
         return Err(invalid("Unsupported meeting version or invalid ID"));
     }
-    if manifest
-        .audio
-        .iter()
-        .any(|asset| !valid_asset(&asset.path, "audio", ".wav"))
+    const MAX_SAFE_MS: u64 = 9_007_199_254_740_991;
+    if manifest.started_at_unix_ms > 8_640_000_000_000_000
         || manifest
-            .screenshots
-            .iter()
-            .any(|asset| !valid_asset(&asset.path, "screenshots", ".png"))
+            .duration_ms
+            .is_some_and(|duration| duration > MAX_SAFE_MS)
+        || manifest.audio.iter().any(|asset| {
+            !valid_asset(&asset.path, "audio", ".wav")
+                || asset.offset_ms > MAX_SAFE_MS
+                || asset.duration_ms == 0
+                || asset.duration_ms > MAX_SAFE_MS
+        })
+        || manifest.screenshots.iter().any(|asset| {
+            !valid_asset(&asset.path, "screenshots", ".png") || asset.offset_ms > MAX_SAFE_MS
+        })
     {
         return Err(invalid("Invalid local meeting asset path"));
     }
     Ok(())
 }
 
-fn open_local_audio(directory: &Path, audio: &AudioChunk) -> io::Result<File> {
-    let path = directory.join(&audio.path);
-    let canonical = path.canonicalize()?;
-    if canonical != directory.canonicalize()?.join(&audio.path) {
-        return Err(invalid("Meeting audio cannot be a symbolic link"));
+pub(crate) fn checked_meeting_directory(root: &Path, id: &str) -> io::Result<PathBuf> {
+    if !valid_id(id) {
+        return Err(invalid("Invalid meeting ID"));
     }
-    let mut file = File::open(path)?;
+    for directory in [root.to_path_buf(), root.join(id)] {
+        let metadata = fs::symlink_metadata(&directory)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(invalid(
+                "Meeting storage must use real directories, not symbolic links",
+            ));
+        }
+    }
+    let directory = root.join(id);
+    if directory.canonicalize()? != root.canonicalize()?.join(id) {
+        return Err(invalid("Meeting directory is outside local storage"));
+    }
+    Ok(directory)
+}
+
+fn open_local_file(directory: &Path, relative: &str) -> io::Result<File> {
+    let path = directory.join(relative);
+    let metadata = fs::symlink_metadata(&path)?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || path.canonicalize()? != directory.canonicalize()?.join(relative)
+    {
+        return Err(invalid(
+            "Meeting asset must be a local regular file, not a symbolic link",
+        ));
+    }
+    File::open(path)
+}
+
+fn open_local_audio(directory: &Path, audio: &AudioChunk) -> io::Result<File> {
+    let mut file = open_local_file(directory, &audio.path)?;
     validate_wav(&mut file)?;
     Ok(file)
 }
@@ -480,12 +515,21 @@ impl SavedMeeting {
     }
 
     pub fn load(root: &Path, id: &str) -> io::Result<Self> {
-        if !valid_id(id) {
-            return Err(invalid("Invalid meeting ID"));
+        let directory = checked_meeting_directory(root, id)?;
+        let mut file = open_local_file(&directory, "meeting.json")?;
+        if file.metadata()?.len() > MAX_MANIFEST_BYTES {
+            return Err(invalid(
+                "Meeting manifest is too large to browse safely; files were retained",
+            ));
         }
-        let directory = root.join(id);
-        let manifest: MeetingManifest =
-            serde_json::from_reader(File::open(directory.join("meeting.json"))?)?;
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(MAX_MANIFEST_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_MANIFEST_BYTES {
+            return Err(invalid("Meeting manifest grew beyond its read limit"));
+        }
+        let manifest: MeetingManifest = serde_json::from_slice(&bytes)?;
         validate_manifest(&manifest)?;
         if manifest.id != id {
             return Err(invalid("Meeting ID does not match its directory"));
@@ -496,9 +540,36 @@ impl SavedMeeting {
         })
     }
 
+    /// Local reference only. This API is deliberately separate from audio-only
+    /// transcription and accepts an index, never a webview-supplied file path.
+    pub fn open_screenshot_for_local_preview(&self, index: usize) -> io::Result<File> {
+        let image = self
+            .manifest
+            .screenshots
+            .get(index)
+            .ok_or_else(|| invalid("Screenshot not found"))?;
+        let mut file = open_local_file(&self.directory, &image.path)?;
+        let mut header = [0; 8];
+        file.read_exact(&mut header)?;
+        if &header != b"\x89PNG\r\n\x1a\n" {
+            return Err(invalid("Screenshot is not PNG data"));
+        }
+        file.seek(SeekFrom::Start(0))?;
+        Ok(file)
+    }
+
     /// Only registered audio can be selected for transcription. Callers cannot
     /// supply a screenshot path or enumerate the entire directory for upload.
     pub fn open_audio_for_transcription(&self, index: usize) -> io::Result<File> {
+        let mut file = self.open_mixed_audio_candidate(index)?;
+        validate_wav(&mut file)?;
+        Ok(file)
+    }
+
+    /// Preview reads must bound the exact byte copy BEFORE parsing its WAV
+    /// structure. This checks registration/track/path/status only; the library
+    /// validates the bounded snapshot before returning any bytes.
+    pub(crate) fn open_mixed_audio_candidate(&self, index: usize) -> io::Result<File> {
         if self.manifest.status == MeetingStatus::Recording {
             return Err(invalid(
                 "Finish or recover the meeting before transcription",
@@ -512,7 +583,7 @@ impl SavedMeeting {
         if audio.track != AudioTrack::Mixed {
             return Err(invalid("Raw source tracks are not transcription inputs"));
         }
-        open_local_audio(&self.directory, audio)
+        open_local_file(&self.directory, &audio.path)
     }
 }
 

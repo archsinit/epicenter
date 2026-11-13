@@ -2,6 +2,8 @@
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import HomeIcon from '@lucide/svelte/icons/house';
 	import ListIcon from '@lucide/svelte/icons/list';
+	import FolderIcon from '@lucide/svelte/icons/folder-open';
+	import { IS_MACOS } from '$lib/constants/platform';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import SunIcon from '@lucide/svelte/icons/sun';
@@ -30,6 +32,7 @@
 	const navItems = [
 		{ label: 'Home', href: '/', icon: HomeIcon, exact: true },
 		{ label: 'Recordings', href: '/recordings', icon: ListIcon },
+		...(window.__TAURI_INTERNALS__ && IS_MACOS ? [{ label: 'Meetings', href: '/meetings', icon: FolderIcon }] : []),
 		{ label: 'Transformations', href: '/transformations', icon: LayersIcon },
 		{ label: 'Settings', href: '/settings', icon: SettingsIcon },
 	] as const;

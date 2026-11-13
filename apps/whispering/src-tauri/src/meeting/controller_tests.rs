@@ -126,6 +126,28 @@ fn startup_restore_blocks_worker_and_process_creation_but_not_status_or_quit() {
     assert_eq!(controller.request_exit().unwrap(), ExitDecision::Allow);
 }
 
+#[test]
+fn library_active_identity_survives_worker_handoff_until_finalization_joins() {
+    let fixture = Fixture::new();
+    assert_eq!(fixture.controller.active_meeting_id().unwrap(), None);
+    let (release, waiting) = std::sync::mpsc::channel();
+    fixture.start(Some(waiting));
+    assert_eq!(
+        fixture.controller.active_meeting_id().unwrap().as_deref(),
+        Some("test")
+    );
+    let controller = fixture.controller.clone();
+    let stop = thread::spawn(move || controller.stop_blocking().unwrap());
+    wait_for(|| fixture.stopped.load(Ordering::Acquire));
+    assert_eq!(
+        fixture.controller.active_meeting_id().unwrap().as_deref(),
+        Some("test")
+    );
+    release.send(()).unwrap();
+    stop.join().unwrap();
+    assert_eq!(fixture.controller.active_meeting_id().unwrap(), None);
+}
+
 fn wait_for(mut ready: impl FnMut() -> bool) {
     let until = Instant::now() + Duration::from_secs(5);
     while !ready() {

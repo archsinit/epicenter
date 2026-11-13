@@ -265,6 +265,83 @@ pub async fn meeting_pause_screenshots(
     blocking(move || controller.pause_screenshots(paused)).await
 }
 
+fn meeting_root(app: &tauri::AppHandle) -> io::Result<PathBuf> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| io::Error::other(error.to_string()))?
+        .join("meetings"))
+}
+#[tauri::command]
+pub async fn meeting_list_saved(
+    window: WebviewWindow,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<crate::meeting::library::MeetingLibrary> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || {
+        crate::meeting::library::list(
+            &meeting_root(&app)?,
+            controller.active_meeting_id()?.as_deref(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn meeting_saved_detail(
+    window: WebviewWindow,
+    id: String,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<crate::meeting::library::MeetingDetail> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || {
+        crate::meeting::library::detail(
+            &meeting_root(&app)?,
+            &id,
+            controller.active_meeting_id()?.as_deref(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn meeting_read_mixed_audio(
+    window: WebviewWindow,
+    id: String,
+    index: usize,
+    state: State<'_, MeetingAppState>,
+    app: tauri::AppHandle,
+) -> Result<tauri::ipc::Response> {
+    main_window(&window)?;
+    let controller = state.controller.clone();
+    blocking(move || {
+        crate::meeting::library::read_mixed_audio(
+            &meeting_root(&app)?,
+            &id,
+            index,
+            controller.active_meeting_id()?.as_deref(),
+        )
+        .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn meeting_read_screenshot(
+    window: WebviewWindow,
+    id: String,
+    index: usize,
+    app: tauri::AppHandle,
+) -> Result<tauri::ipc::Response> {
+    main_window(&window)?;
+    blocking(move || {
+        crate::meeting::library::read_screenshot(&meeting_root(&app)?, &id, index)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
 fn receipt_root(app: &tauri::AppHandle) -> io::Result<PathBuf> {
     Ok(app
         .path()

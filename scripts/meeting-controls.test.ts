@@ -37,6 +37,10 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'meeting_stop',
 			'meeting_capture_now',
 			'meeting_pause_screenshots',
+			'meeting_list_saved',
+			'meeting_saved_detail',
+			'meeting_read_mixed_audio',
+			'meeting_read_screenshot',
 		]) {
 			expect(command(name)).toContain('main_window(&window)?');
 			expect(app).toContain(`meeting_commands::${name},`);
@@ -90,6 +94,26 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 		expect(dictation).toContain('await session.stop(recorderService(),');
 		expect(dictation).toContain('await session.cancel(recorderService(),');
 		expect(dictation).not.toContain('currentRecordingId = null');
+	});
+	test('library IPC is native-rooted, read-only, and separates screenshot bytes from mixed audio', () => {
+		const library = readFileSync(new URL('meeting/library.rs', root), 'utf8');
+		for (const unsafe of ['MacMeetingBackend', 'remove_file(', 'fs::write(', 'request_screen_permission', 'reqwest', 'transcribe('])
+			expect(library).not.toContain(unsafe);
+		expect(command('meeting_read_mixed_audio')).toContain('read_mixed_audio(');
+		expect(command('meeting_read_mixed_audio')).toContain('active_meeting_id()');
+		expect(command('meeting_read_screenshot')).toContain('read_screenshot(');
+		expect(command('meeting_read_screenshot')).not.toContain('read_mixed_audio(');
+		expect(commands).toContain('tauri::ipc::Response::new');
+		const client = readFileSync(new URL('../meetings/library.ts', clientRoot), 'utf8');
+		for (const unsafe of ['fetch(', '/transcription', "from './clipboard", '/delivery'])
+			expect(client).not.toContain(unsafe);
+		const page = readFileSync(new URL('../apps/whispering/src/routes/(app)/(config)/meetings/MeetingLibrary.svelte', import.meta.url), 'utf8');
+		expect(page).toContain('return () => resource.close()');
+		expect(page).toContain('data.id !== selectedId');
+		expect(page).not.toContain('autoplay');
+		expect(page).not.toContain('{@html');
+		expect(page).not.toContain('meeting_start');
+		expect(page).not.toContain('transcribeRecordings');
 	});
 	test('Quit interception covers ExitRequested rather than only tray actions', () => {
 		expect(app).toContain('RunEvent::ExitRequested { api, .. }');

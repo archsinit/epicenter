@@ -195,6 +195,21 @@ impl MeetingController {
         Self::reap(&mut gate, &mut slot);
         Self::snapshot(&slot)
     }
+    /// A terminal progress label alone is not proof the worker has been joined.
+    /// Keep library playback fenced through finalization or unknown cleanup.
+    pub fn active_meeting_id(&self) -> io::Result<Option<String>> {
+        let mut gate = self.capture_gate()?;
+        let mut slot = self.slot.lock().map_err(|_| poisoned())?;
+        Self::reap(&mut gate, &mut slot);
+        if slot.worker.is_some() || slot.finishing || slot.failure.is_some() {
+            return Ok(Some(
+                Self::snapshot(&slot)?
+                    .ok_or_else(|| io::Error::other("Active meeting identity is unavailable"))?
+                    .id,
+            ));
+        }
+        Ok(None)
+    }
     pub fn capture_now(&self) -> io::Result<()> {
         let gate = self.capture_gate()?;
         if gate.is_closing() {

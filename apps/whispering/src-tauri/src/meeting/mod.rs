@@ -7,6 +7,7 @@ pub mod backend_macos;
 pub mod capture_process;
 pub mod control;
 pub mod controller;
+pub mod library;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod recovery;
