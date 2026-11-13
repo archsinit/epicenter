@@ -9,6 +9,18 @@ static LEVEL: AtomicU32 = AtomicU32::new(0);
 static FRAME_AT: AtomicU64 = AtomicU64::new(0);
 static CLOCK: OnceLock<Instant> = OnceLock::new();
 
+const WINDOW_WIDTH: f64 = 360.0;
+const WINDOW_HEIGHT: f64 = 240.0;
+const BOTTOM_MARGIN: f64 = 56.0;
+
+fn gaze_direction(dx: f64, dy: f64, scale: f64) -> [f64; 2] {
+    let distance = 400.0 * scale.max(1.0);
+    [
+        (dx / distance).clamp(-1.0, 1.0),
+        (dy / distance).clamp(-1.0, 1.0),
+    ]
+}
+
 fn now_ms() -> u64 {
     CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
 }
@@ -45,6 +57,7 @@ pub struct Snapshot {
     phase: Phase,
     level: Option<f32>,
     input_active: bool,
+    gaze: [f64; 2],
 }
 
 pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
@@ -54,7 +67,7 @@ pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
         WebviewUrl::App("recording-indicator".into()),
     )
     .title("Recording status")
-    .inner_size(280.0, 64.0)
+    .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -72,10 +85,12 @@ pub fn create_window(app: &tauri::App) -> tauri::Result<()> {
         let origin = monitor.position();
         let scale = monitor.scale_factor();
         window.set_position(tauri::PhysicalPosition::new(
-            origin.x + (size.width as i32 - (280.0 * scale) as i32) / 2,
-            origin.y + size.height as i32 - (120.0 * scale) as i32,
+            origin.x + (size.width as i32 - (WINDOW_WIDTH * scale) as i32) / 2,
+            origin.y + size.height as i32 - ((WINDOW_HEIGHT + BOTTOM_MARGIN) * scale) as i32,
         ))?;
     }
+    // Position before showing; this window never takes focus or handles clicks.
+    window.show()?;
     Ok(())
 }
 
@@ -90,19 +105,33 @@ pub fn set_indicator_state(
     let window = app
         .get_webview_window("recording-indicator")
         .ok_or("Recording indicator window unavailable")?;
-    if phase == Phase::Idle {
-        window.hide()
-    } else {
-        window.show()
-    }
-    .map_err(|e| e.to_string())
+    // Idle is now a persistent companion, not a hidden recording indicator.
+    window.show().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_indicator_state(state: State<'_, IndicatorState>) -> Result<Snapshot, String> {
+pub fn get_indicator_state(
+    app: tauri::AppHandle,
+    state: State<'_, IndicatorState>,
+) -> Result<Snapshot, String> {
     let (phase, metered) = *state.0.lock().map_err(|e| e.to_string())?;
     let last_frame = FRAME_AT.load(Ordering::Relaxed);
     let input_active = last_frame > 0 && now_ms().saturating_sub(last_frame) < 500;
+    // Read-only global pointer query: no event hooks or input interception.
+    // Window and pointer coordinates are both physical pixels, including monitor origins.
+    let gaze = app
+        .get_webview_window("recording-indicator")
+        .and_then(|window| {
+            let cursor = window.cursor_position().ok()?;
+            let origin = window.inner_position().ok()?;
+            let scale = window.scale_factor().ok()?;
+            Some(gaze_direction(
+                cursor.x - origin.x as f64 - WINDOW_WIDTH * scale / 2.0,
+                cursor.y - origin.y as f64 - 105.0 * scale,
+                scale,
+            ))
+        })
+        .unwrap_or([0.0, 0.0]);
     Ok(Snapshot {
         phase,
         level: if metered && phase == Phase::Recording {
@@ -115,12 +144,21 @@ pub fn get_indicator_state(state: State<'_, IndicatorState>) -> Result<Snapshot,
             None
         },
         input_active,
+        gaze,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn gaze_is_bounded_and_scale_independent() {
+        assert_eq!(gaze_direction(0.0, 0.0, 1.0), [0.0, 0.0]);
+        assert_eq!(gaze_direction(900.0, -900.0, 1.0), [1.0, -1.0]);
+        assert_eq!(gaze_direction(200.0, -100.0, 1.0), [0.5, -0.25]);
+        assert_eq!(gaze_direction(400.0, -200.0, 2.0), [0.5, -0.25]);
+    }
+
     #[test]
     fn metering_uses_real_samples_and_silence_is_zero() {
         record_level([0.5_f32, -0.5].into_iter());
