@@ -37,6 +37,7 @@ extern "C" {
         error: *mut c_char,
         capacity: usize,
     ) -> *mut c_void;
+    fn wi_meeting_audio_enable(handle: *mut c_void, error: *mut c_char, capacity: usize) -> bool;
     fn wi_meeting_audio_stop(handle: *mut c_void, error: *mut c_char, capacity: usize) -> bool;
     fn wi_meeting_audio_error(handle: *mut c_void, error: *mut c_char, capacity: usize) -> bool;
     fn wi_meeting_screenshot(display_id: u32, error: *mut c_char, capacity: usize) -> NativeBytes;
@@ -200,6 +201,19 @@ impl NativeAudioInput {
             _worker_only: PhantomData,
         })
     }
+    /// Start delivering PCM only once every source has been initialized. This
+    /// avoids overflowing the first source's queue while the second is starting.
+    pub fn enable(&self) -> io::Result<()> {
+        let handle = self
+            .handle
+            .ok_or_else(|| io::Error::other("Audio input is stopped"))?;
+        let mut error = [0; 1024];
+        if !unsafe { wi_meeting_audio_enable(handle.as_ptr(), error.as_mut_ptr(), error.len()) } {
+            return Err(native_error(&error));
+        }
+        Ok(())
+    }
+
     pub fn try_recv(&self) -> Result<AudioPacket, TryRecvError> {
         self.receiver.try_recv()
     }

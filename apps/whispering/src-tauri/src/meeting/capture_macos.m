@@ -237,7 +237,7 @@ void *wi_meeting_system_start(uint32_t displayID, WIMeetingAudioCallback callbac
                 WIError(error, capacity, completed ? startFailure.localizedDescription : @"Timed out starting system audio");
                 return NULL; // enabled was never set; context was never invoked.
             }
-            input.enabled = YES;
+            // Enable callback delivery only after both sources and epoch are ready.
             return (void *)CFBridgingRetain(input);
         }
         WIError(error, capacity, @"Meeting capture requires macOS 14 or newer");
@@ -288,11 +288,27 @@ void *wi_meeting_microphone_start(const char *deviceID, WIMeetingAudioCallback c
                 [input.microphoneOutput setSampleBufferDelegate:nil queue:NULL];
                 WIError(error, capacity, @"Microphone capture did not start"); return NULL;
             }
-            input.enabled = YES;
+            // Enable callback delivery only after both sources and epoch are ready.
             return (void *)CFBridgingRetain(input);
         }
         WIError(error, capacity, @"Meeting capture requires macOS 14 or newer");
         return NULL;
+    }
+}
+
+bool wi_meeting_audio_enable(void *handle, char *error, size_t capacity) {
+    @autoreleasepool {
+        if (!WIWorker(error, capacity) || !handle) return false;
+        if (@available(macOS 14.0, *)) {
+            WIMeetingInput *input = (__bridge WIMeetingInput *)handle;
+            if (input.cancelled || input.failure || (input.microphone && !input.microphone.running)) {
+                WIError(error, capacity, input.failure ?: @"Audio input is not ready"); return false;
+            }
+            input.enabled = YES;
+            return true;
+        }
+        WIError(error, capacity, @"Meeting capture requires macOS 14 or newer");
+        return false;
     }
 }
 

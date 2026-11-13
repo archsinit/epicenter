@@ -17,6 +17,9 @@ void *wi_meeting_system_start(uint32_t display_id, WIMeetingAudioCallback callba
     void *context, char *error, size_t capacity);
 void *wi_meeting_microphone_start(const char *device_id, WIMeetingAudioCallback callback,
     void *context, char *error, size_t capacity);
+// Inputs start with callback delivery disabled. Enable only when both sources
+// are ready and the worker has chosen their common audio epoch.
+bool wi_meeting_audio_enable(void *handle, char *error, size_t capacity);
 // Disables callbacks and drains the serial output queue even if stop times out.
 bool wi_meeting_audio_stop(void *handle, char *error, size_t capacity);
 bool wi_meeting_audio_error(void *handle, char *error, size_t capacity);

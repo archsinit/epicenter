@@ -33,10 +33,21 @@ pub enum ScreenshotOrigin {
     Manual,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AudioTrack {
+    #[default]
+    Mixed,
+    Microphone,
+    System,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioChunk {
     pub path: String,
+    #[serde(default)]
+    pub track: AudioTrack,
     pub offset_ms: u64,
     pub duration_ms: u64,
 }
@@ -65,6 +76,31 @@ pub struct MeetingManifest {
     pub screenshots: Vec<Screenshot>,
 }
 
+impl MeetingManifest {
+    pub fn new(
+        id: String,
+        title: String,
+        mode: MeetingMode,
+        microphone_id: String,
+        display_id: Option<u32>,
+        started_at_unix_ms: u64,
+    ) -> Self {
+        Self {
+            version: MANIFEST_VERSION,
+            id,
+            title,
+            mode,
+            microphone_id,
+            display_id,
+            started_at_unix_ms,
+            duration_ms: None,
+            status: MeetingStatus::Recording,
+            audio: Vec::new(),
+            screenshots: Vec::new(),
+        }
+    }
+}
+
 /// A progressively written WAV owned by this meeting. The capture backend must
 /// finalize its WAV header before commit. Dropping it does not delete the file.
 /// The next open can still recover audio even if the manifest update never ran.
@@ -73,11 +109,38 @@ pub struct PendingAudioChunk {
     relative_path: String,
     directory: PathBuf,
     offset_ms: u64,
+    track: AudioTrack,
 }
 
 impl PendingAudioChunk {
     pub fn file_mut(&mut self) -> &mut File {
         &mut self.file
+    }
+
+    pub(crate) fn writer_file(&self) -> io::Result<File> {
+        self.file.try_clone()
+    }
+}
+
+/// A screenshot file reserved by the storage owner, filled on the screenshot
+/// thread, then registered on the owner thread. Large PNG writes never block
+/// draining the microphone/system audio queues.
+pub(crate) struct PendingScreenshot {
+    file: File,
+    relative_path: String,
+    directory: PathBuf,
+}
+impl PendingScreenshot {
+    pub(crate) fn write_png(&mut self, png: &[u8]) -> io::Result<()> {
+        if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err(invalid("Screenshot must be PNG data"));
+        }
+        self.file.write_all(png)?;
+        self.file.sync_all()
+    }
+    pub(crate) fn discard(self) -> io::Result<()> {
+        drop(self.file);
+        fs::remove_file(self.directory.join(self.relative_path))
     }
 }
 
@@ -237,13 +300,44 @@ impl MeetingStore {
     }
 
     pub fn begin_audio_chunk(&self, offset_ms: u64) -> io::Result<PendingAudioChunk> {
+        self.begin_track_chunk(offset_ms, AudioTrack::Mixed)
+    }
+
+    pub(crate) fn open_registered_audio(&self, index: usize) -> io::Result<File> {
+        let audio = self
+            .manifest
+            .audio
+            .get(index)
+            .ok_or_else(|| invalid("Audio chunk not found"))?;
+        open_local_audio(&self.directory, audio)
+    }
+
+    pub(crate) fn begin_track_chunk(
+        &self,
+        offset_ms: u64,
+        track: AudioTrack,
+    ) -> io::Result<PendingAudioChunk> {
         self.require_recording()?;
         let (relative_path, file) = self.new_asset("audio", ".wav", self.manifest.audio.len())?;
+        // A crash can happen before this chunk reaches the main manifest. Keep
+        // its source identity and timeline offset beside the progressive WAV;
+        // preserving samples alone would lose mic/system alignment on recovery.
+        let mut recovery = private_new_file(&self.directory.join(format!("{relative_path}.json")))?;
+        serde_json::to_writer(
+            &mut recovery,
+            &serde_json::json!({
+                "version": MANIFEST_VERSION, "path": relative_path, "track": track, "offsetMs": offset_ms
+            }),
+        )?;
+        recovery.sync_all()?;
+        #[cfg(unix)]
+        File::open(self.directory.join("audio"))?.sync_all()?;
         Ok(PendingAudioChunk {
             file,
             relative_path,
             directory: self.directory.clone(),
             offset_ms,
+            track,
         })
     }
 
@@ -264,6 +358,7 @@ impl MeetingStore {
         let mut manifest = self.manifest.clone();
         manifest.audio.push(AudioChunk {
             path: chunk.relative_path,
+            track: chunk.track,
             offset_ms: chunk.offset_ms,
             duration_ms,
         });
@@ -276,17 +371,35 @@ impl MeetingStore {
         offset_ms: u64,
         origin: ScreenshotOrigin,
     ) -> io::Result<()> {
+        let mut pending = self.begin_screenshot()?;
+        pending.write_png(png)?;
+        self.commit_screenshot(pending, offset_ms, origin)
+    }
+
+    pub(crate) fn begin_screenshot(&self) -> io::Result<PendingScreenshot> {
         self.require_recording()?;
-        if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
-            return Err(invalid("Screenshot must be PNG data"));
-        }
-        let (relative, mut file) =
+        let (relative_path, file) =
             self.new_asset("screenshots", ".png", self.manifest.screenshots.len())?;
-        file.write_all(png)?;
-        file.sync_all()?;
+        Ok(PendingScreenshot {
+            file,
+            relative_path,
+            directory: self.directory.clone(),
+        })
+    }
+
+    pub(crate) fn commit_screenshot(
+        &mut self,
+        pending: PendingScreenshot,
+        offset_ms: u64,
+        origin: ScreenshotOrigin,
+    ) -> io::Result<()> {
+        self.require_recording()?;
+        if pending.directory != self.directory {
+            return Err(invalid("Screenshot does not belong to this meeting"));
+        }
         let mut manifest = self.manifest.clone();
         manifest.screenshots.push(Screenshot {
-            path: relative,
+            path: pending.relative_path,
             offset_ms,
             origin,
         });
@@ -342,6 +455,17 @@ fn validate_manifest(manifest: &MeetingManifest) -> io::Result<()> {
     Ok(())
 }
 
+fn open_local_audio(directory: &Path, audio: &AudioChunk) -> io::Result<File> {
+    let path = directory.join(&audio.path);
+    let canonical = path.canonicalize()?;
+    if canonical != directory.canonicalize()?.join(&audio.path) {
+        return Err(invalid("Meeting audio cannot be a symbolic link"));
+    }
+    let mut file = File::open(path)?;
+    validate_wav(&mut file)?;
+    Ok(file)
+}
+
 /// Read-only saved meeting. Loading does not restart capture, rewrite status,
 /// remove orphan files, or initiate transcription. Recording status on disk
 /// means an unfinished session when no live native controller owns it.
@@ -385,15 +509,10 @@ impl SavedMeeting {
             .audio
             .get(index)
             .ok_or_else(|| invalid("Audio chunk not found"))?;
-        let path = self.directory.join(&audio.path);
-        // A local reference must not redirect transcription outside its meeting.
-        let canonical = path.canonicalize()?;
-        if canonical != self.directory.canonicalize()?.join(&audio.path) {
-            return Err(invalid("Meeting audio cannot be a symbolic link"));
+        if audio.track != AudioTrack::Mixed {
+            return Err(invalid("Raw source tracks are not transcription inputs"));
         }
-        let mut file = File::open(path)?;
-        validate_wav(&mut file)?;
-        Ok(file)
+        open_local_audio(&self.directory, audio)
     }
 }
 
@@ -592,6 +711,7 @@ mod tests {
         let mut bad = manifest();
         bad.audio.push(AudioChunk {
             path: "screenshots/00000000.png".into(),
+            track: AudioTrack::Mixed,
             offset_ms: 0,
             duration_ms: 1,
         });

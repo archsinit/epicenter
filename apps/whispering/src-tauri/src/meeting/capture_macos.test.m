@@ -55,7 +55,15 @@ int main(void) {
             CMSampleBufferRef buffer = sample(1);
             [input consume:buffer];
             assert(calls == 0); // no capture before explicit enable
-            input.enabled = YES;
+            void *enableHandle = (__bridge void *)input;
+            assert(!wi_meeting_audio_enable(enableHandle, error, sizeof(error))); // wrong-thread guard
+            dispatch_semaphore_t enabled = dispatch_semaphore_create(0);
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+                char enableError[512] = {0};
+                assert(wi_meeting_audio_enable(enableHandle, enableError, sizeof(enableError)));
+                dispatch_semaphore_signal(enabled);
+            });
+            assert(WIWait(enabled));
             [input consume:buffer];
             assert(calls == 1 && lastTime == 100000000000ULL);
             input.enabled = NO;

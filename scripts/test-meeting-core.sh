@@ -37,7 +37,7 @@ path = "lib.rs"
 ''' + dependencies)
 (bridge / 'lib.rs').write_text(''.join(
     '#[path = ' + json.dumps(str(module / (name + '.rs'))) + ']\npub mod ' + name + ';\n'
-    for name in ['audio', 'macos']))
+    for name in ['audio', 'macos', 'schedule', 'storage', 'timeline', 'worker', 'backend_macos']))
 PY
 if [[ "$(uname -s)" == Darwin ]]; then
     xcrun clang -fobjc-arc -O2 -mmacosx-version-min=10.15 \
@@ -60,5 +60,5 @@ PY
     cargo --config "$work/link.toml" test --offline --manifest-path "$work/Cargo.toml" "$@"
 else
     cargo test --offline --manifest-path "$work/Cargo.toml" "$@"
-    CARGO_TARGET_DIR="$work/target" cargo check --offline --manifest-path "$work/bridge/Cargo.toml"
+    CARGO_TARGET_DIR="$work/target" cargo check --tests --offline --manifest-path "$work/bridge/Cargo.toml"
 fi

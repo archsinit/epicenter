@@ -2,11 +2,14 @@
 //! Never block a capture callback on disk I/O or a full queue. An overflow is
 //! counted explicitly so the controller can report an interrupted recording.
 
+#[cfg(any(target_os = "macos", test))]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(any(target_os = "macos", test))]
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 pub const MAX_PACKET_FRAMES: usize = 96_000;
+#[cfg(any(target_os = "macos", test))]
 const QUEUE_CAPACITY: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,12 +27,14 @@ pub struct AudioPacket {
     pub samples: Vec<f32>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) struct AudioSink {
     source: AudioSource,
     sender: SyncSender<AudioPacket>,
     dropped: AtomicU64,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl AudioSink {
     pub(crate) fn channel(source: AudioSource) -> (Box<Self>, Receiver<AudioPacket>) {
         let (sender, receiver) = sync_channel(QUEUE_CAPACITY);

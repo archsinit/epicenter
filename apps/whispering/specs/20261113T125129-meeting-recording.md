@@ -1,6 +1,6 @@
 # Meeting recording with local screenshot references
 
-Status: implementation in progress. Local storage/scheduling plus native macOS audio/screenshot capture primitives are implemented. Controller, progressive audio writing/mixing, UI and provider integration remain pending; the feature is not yet usable or installed.
+Status: implementation in progress. Native capture primitives, the dedicated meeting worker, progressive source WAV writing/alignment, post-stop mixing and independent screenshot processing are implemented and synthetic-tested. Tauri command/application lifecycle integration, UI, recovery and provider integration remain pending; the feature is not yet usable or installed.
 
 ## Purpose
 
@@ -57,15 +57,19 @@ Use normal macOS microphone and screen/system-audio capture permission prompts. 
 - [x] Verify native API/deployment-target compatibility and settle capture backend: AVFoundation microphone capture; ScreenCaptureKit system audio (13+) and screenshot manager (14+). Meeting mode requires macOS 14+. Verified against the actual Mac SDK headers and by compiling/linking the bridge with a 10.15 deployment target and guarded APIs. ScreenCaptureKit is weak-linked; launching on an older OS is not yet runtime-tested.
 - [ ] Implement durable meeting storage and explicit lifecycle with crash recovery.
   - [x] Local manifest/asset storage, atomic manifest replacement, private file permissions, progressive audio-file handles and orphan-file preservation.
-  - [ ] Wire live capture lifecycle, list/recover unfinished recordings and integrate Stop/Quit finalization.
+  - [x] Dedicated worker actor with Start/Recording/Stop/Mixing/final status, command queue, progress snapshots, shutdown drain and failure/interruption handling.
+  - [x] Durable per-chunk source/offset recovery metadata alongside active WAVs, not only in-memory source identity.
+  - [ ] Wire Tauri application lifecycle, list/recover unfinished recordings and integrate explicit Quit finalization.
 - [ ] Implement real system-plus-microphone and microphone-only recording.
   - [x] Native microphone and system-audio input ownership, source selection, mono 48kHz PCM, host-clock timestamps, callback queue draining and explicit permission entry points.
   - [x] Safe worker-only Rust wrapper, bounded nonblocking audio transport and explicit packet-loss reporting.
-  - [ ] Connect inputs to progressive WAV writing/alignment and verify actual microphone/system audio with consent.
+  - [x] Connect the Mac inputs to the worker, progressive minute-grid PCM16 WAVs with one-second header/data checkpoints, timestamp gap/overlap handling, source retention and bounded-memory post-stop mixed WAVs. Keep callback delivery disabled until both inputs and their common epoch are ready.
+  - [ ] Verify actual microphone/system audio with consent after the application controls are wired.
 - [ ] Implement automatic five-minute screenshots, manual capture and screenshot pause.
   - [x] Native scheduling policy: fixed cadence, manual capture independence, pause, overlap suppression, stop/drain and missed-slot handling.
   - [x] Native selected-display PNG screenshot backend (macOS 14+), with explicit permission checks, missing-display errors and no video recording.
-  - [ ] Connect policy and backend to the native capture worker; verify actual screenshots with consent.
+  - [x] Connect scheduling/backend to a separate screenshot thread; PNG writes do not block audio draining. Pause/Stop cancel and discard pending PNGs; finalization drains in-flight work without extending the audio duration. Screenshot failures are visible but do not stop otherwise healthy audio.
+  - [ ] Verify actual screenshots with consent after the application controls are wired.
 - [ ] Add meeting service, query/controller and Meetings UI with local reference browsing.
 - [ ] Add explicit audio-only transcription and save transcript without dictation delivery side effects.
 - [ ] Add focused tests: original timer cadence after manual capture, duplicate/collision handling, pause/resume, stop/in-flight capture, errors, recovery, path safety and screenshot exclusion from provider requests.
@@ -83,4 +87,14 @@ Second increment: added `capture_macos.{h,m}`, worker-owned Rust wrapper `macos.
 
 Validation: **28 Rust core tests pass**, and the actual Rust macOS wrapper type-checks in the portable harness. On the actual Intel Mac, SDK **26.5**, the committed-style native fixture compiles/links with a **10.15 deployment target**, unguarded availability/incompatible pointer/deprecation warnings treated as errors, and passes synthetic PCM forwarding, timestamps, wrong-format rejection, main-thread rejection and stop queue-draining checks. The same synthetic fixture also passes with AddressSanitizer (leak detection disabled). These tests do not enumerate devices, open a microphone, capture a screen or request permissions; they are NOT real-capture acceptance. App check remains zero errors/17 inherited warnings. No app installation, settings/permission change or provider call occurred. `scripts/test-meeting-native.sh` is now included in Intel CI; full app build/startup validation is separate from this direct SDK check.
 
-Next increment: implement the native worker with progressive WAV writing/alignment, connect scheduling and storage, then wire service → query → UI and audio-only transcription. Do not present the current capture primitives as a working meeting recorder.
+Checkpoint `fc65680` full Intel CI run 43433905557 subsequently PASSED. Downloaded/read its actual validation report and log: 44 native Rust tests (28 meeting +16 existing), synthetic capture fixture, frontend checks, Intel build, signature verification and eight-second GUI-session startup on macOS 15.7.9 x86_64. Startup was not skipped. This is not live capture/UI acceptance.
+
+Third increment: added `timeline.rs`, `worker.rs`, `worker_tests.rs` and `backend_macos.rs`. Native audio inputs start with callback delivery disabled, preventing startup queue loss while the second source initializes; enable both on a shared host-clock epoch. The worker drains bounded PCM queues on its own thread, progressively writes minute-grid source WAVs and checkpoints their readable headers/data every second. Source track and offset are written to private per-chunk JSON sidecars before data, preserving recovery context even if a crash precedes main-manifest registration. Gaps/overlaps align to the shared timeline; quiet absent source minutes require no source files. After Stop, source WAVs are retained and streamed into minute-sized mixed audio with headroom. Only mixed audio may be selected for transcription.
+
+Screenshot capture and PNG persistence run on a separate thread. Large/slow screenshots cannot block draining audio. Native scheduling keeps the five-minute cadence independently of manual captures. Pause/Stop cancel pending screenshots and remove their unregistered files; Stop drains the task before finalizing, without treating screenshot shutdown time as extra recorded audio. Screenshot errors remain visible without interrupting healthy audio. Native failures, lost packets, microphone stalls/gaps (including after resuming), timestamp errors and audio-file failures are marked incomplete rather than reported as successful recordings.
+
+Validation: **49 core-module tests pass** with no new Rust warnings, and the actual macOS wrapper/backend plus worker test code type-check in the portable harness. Native synthetic fixture (including explicit enable and stop-drain) passes on the Intel Mac both normally and under AddressSanitizer (leak detection disabled). App check remains **zero errors /17 inherited warnings**. No real microphone/system audio/screen capture, permission request, provider call or installation occurred. Full Intel CI of this third increment is a separate checkpoint to verify after pushing.
+
+Storage tradeoff: current uncompressed 48kHz mono PCM16 keeps raw source tracks plus mixed audio: approximately **1 GB/hour for dual-source meetings**, excluding screenshots (microphone-only roughly 0.7 GB/hour). Add a clear storage estimate in the meeting UI; compression/automatic deletion are not silently introduced.
+
+Next increment: wire Tauri command/application lifecycle with dictation exclusion and Quit finalization, then service → query → Meetings UI, safe local browsing/recovery and explicit audio-only transcription. Do not present the current native worker as an end-user-ready meeting recorder.
