@@ -46,6 +46,9 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
 			'meeting_execute_recovery',
 			'meeting_recovery_status',
 			'meeting_cancel_recovery',
+			'meeting_transcript_latest',
+			'meeting_transcript_begin',
+			'meeting_transcript_save',
 		]) {
 			expect(command(name)).toContain('main_window(&window)?');
 			expect(app).toContain(`meeting_commands::${name},`);
@@ -218,6 +221,26 @@ describe('native meeting application wiring (source contracts, not GUI/capture a
         expect(app).not.toContain('meeting_commands::meeting_recover_audio');
         const library = readFileSync(new URL('meeting/library.rs', root), 'utf8');
         expect(library).not.toContain('audio_recovery::');
+    });
+	test('recovery/transcription UI is explicit and audio-only provider orchestration excludes images/delivery', () => {
+        const base='../apps/whispering/src/routes/(app)/(config)/meetings/';
+        const recovery=readFileSync(new URL(base+'RecoverMeeting.svelte',import.meta.url),'utf8').replace(/\s/g,'');
+        expect(recovery).toContain('execute.mutate({token:own!.token,confirmed}');
+        expect(recovery).toContain('constreviewToken=$derived(own?.token)');
+        const batch=readFileSync(new URL('../meetings/transcription.ts',clientRoot),'utf8');
+        expect(batch).toContain('library.readMixedAudio(');
+        expect(batch).toContain('transcribe(audio.data.blob)');
+        expect(batch).not.toContain('readScreenshot(');
+        for(const unsafe of ["from '../clipboard", "from '../delivery", "from '../cleanup", 'transcribeRecordings'])
+            expect(batch).not.toContain(unsafe);
+        const provider=readFileSync(new URL('../../query/meeting-provider.ts',clientRoot),'utf8').replace(/\s/g,'');
+        expect(provider).toContain('constv={...settings.value}');
+        expect(provider).toContain("key!=='apiKey'");
+        expect(provider).not.toContain('settings.update');
+        const player=readFileSync(new URL(base+'MeetingPlayback.svelte',import.meta.url),'utf8').replace(/\s/g,'');
+        expect(player).not.toContain('autoplay');
+        expect(player).toContain('onclick={()=>playAt(0)}');
+        expect(player).toContain('resource.close()');
     });
 	test('bounded Quit observes one cleanup job without late auto-exit or admission release', () => {
         const monitor = commands.slice(commands.indexOf('pub fn handle_exit('), commands.indexOf('fn finalize_native_capture('));

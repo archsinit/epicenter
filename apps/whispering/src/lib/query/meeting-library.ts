@@ -4,6 +4,9 @@ import { MeetingLibraryServiceLive } from '$lib/services/meetings/library-live';
 import { defineMutation, defineQuery } from './_client';
 
 export const meetingLibrary = {
+ page(after: string | null) {return defineQuery({queryKey:['meetings','library',after],queryFn:async()=>{
+ const r=await MeetingLibraryServiceLive.list(after??undefined);if(r.error)return WhisperingErr({title:'Cannot read local meeting page',serviceError:r.error});return Ok(r.data);
+ }});},
 	list: defineQuery({
 		queryKey: ['meetings', 'library'],
 		queryFn: async () => {

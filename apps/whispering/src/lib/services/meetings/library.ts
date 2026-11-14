@@ -14,6 +14,7 @@ const Manifest = type({
 const Library = type({
 	entries: type({ id: 'string', title: 'string', state: State, startedAtUnixMs: 'number | null', durationMs: 'number | null', audioChunks: 'number', screenshots: 'number', error: 'string | null' }).array(),
 	truncated: 'boolean',
+	'nextCursor?': 'string | null',
 });
 const Detail = type({ manifest: Manifest, state: State, unregisteredAssets: 'number' });
 export type MeetingLibrary = typeof Library.infer;
@@ -65,11 +66,13 @@ export function createMeetingLibraryService(request: Request) {
 		});
 	}
 	return {
-		async list() {
-			const result = await read('meeting_list_saved');
+		async list(after?: string) {
+			if(after !== undefined && (after.length>1024 || after.includes('\0')))return invalid('Invalid paging cursor.');
+			const result = await read('meeting_list_saved', after===undefined?undefined:{after});
 			if (result.error) return Err(result.error);
 			const library = Library(result.data);
 			if (library instanceof type.errors || library.entries.length > 500 || library.entries.some((e) => !natural(e.audioChunks) || !natural(e.screenshots) || !nullableNatural(e.startedAtUnixMs) || !nullableNatural(e.durationMs))) return invalid();
+			if ((library.truncated && !library.nextCursor) || (library.nextCursor != null && (library.nextCursor.length>1024 || library.nextCursor.includes('\0') || (after!==undefined && library.nextCursor<=after)))) return invalid('Invalid/non-advancing page cursor.');
 			return Ok(library);
 		},
 		async detail(id: string) {

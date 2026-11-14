@@ -20,4 +20,5 @@ pub mod schedule;
 pub mod sources;
 pub mod storage;
 pub mod timeline;
+pub mod transcript;
 pub mod worker;

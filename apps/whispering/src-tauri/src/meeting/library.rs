@@ -37,6 +37,7 @@ pub struct LibraryEntry {
 pub struct MeetingLibrary {
     pub entries: Vec<LibraryEntry>,
     pub truncated: bool,
+    pub next_cursor: Option<String>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,11 +60,22 @@ fn state(manifest: &MeetingManifest, active_id: Option<&str>) -> LibraryState {
     }
 }
 pub fn list(root: &Path, active_id: Option<&str>) -> io::Result<MeetingLibrary> {
+    list_page(root, active_id, None)
+}
+pub fn list_page(
+    root: &Path,
+    active_id: Option<&str>,
+    after: Option<&str>,
+) -> io::Result<MeetingLibrary> {
+    if after.is_some_and(|s| s.len() > 1024 || s.contains('\0')) {
+        return Err(invalid("Invalid library cursor"));
+    }
     match fs::symlink_metadata(root) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(MeetingLibrary {
                 entries: vec![],
                 truncated: false,
+                next_cursor: None,
             })
         }
         Err(error) => return Err(error),
@@ -73,18 +85,32 @@ pub fn list(root: &Path, active_id: Option<&str>) -> io::Result<MeetingLibrary> 
         Ok(_) => {}
     }
     let mut entries = Vec::new();
-    let mut truncated = false;
+    let mut names = std::collections::BTreeSet::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         if !kind.is_dir() && !kind.is_symlink() {
             continue;
         }
-        if entries.len() == MAX_LIBRARY_ENTRIES {
-            truncated = true;
-            break;
-        }
         let id = entry.file_name().to_string_lossy().into_owned();
+        if after.is_some_and(|cursor| id.as_str() <= cursor) {
+            continue;
+        }
+        names.insert(id);
+        if names.len() > MAX_LIBRARY_ENTRIES + 1 {
+            names.pop_last();
+        }
+    }
+    let truncated = names.len() > MAX_LIBRARY_ENTRIES;
+    if truncated {
+        names.pop_last();
+    }
+    let next_cursor = if truncated {
+        names.last().cloned()
+    } else {
+        None
+    };
+    for id in names {
         let summary = match SavedMeeting::load(root, &id) {
             Ok(saved) => {
                 let manifest = saved.manifest();
@@ -119,7 +145,11 @@ pub fn list(root: &Path, active_id: Option<&str>) -> io::Result<MeetingLibrary> 
             .cmp(&a.started_at_unix_ms)
             .then_with(|| a.id.cmp(&b.id))
     });
-    Ok(MeetingLibrary { entries, truncated })
+    Ok(MeetingLibrary {
+        entries,
+        truncated,
+        next_cursor,
+    })
 }
 pub fn detail(root: &Path, id: &str, active_id: Option<&str>) -> io::Result<MeetingDetail> {
     let saved = SavedMeeting::load(root, id)?;

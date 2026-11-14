@@ -5,9 +5,14 @@
 	import { createLocalPreviewUrl, formatMeetingOffset } from '$lib/services/meetings/library';
 
 	import RevealMeetingFolder from './RevealMeetingFolder.svelte';
+	import RecoverMeeting from './RecoverMeeting.svelte';
+	import TranscribeMeeting from './TranscribeMeeting.svelte';
+	import MeetingPlayback from './MeetingPlayback.svelte';
 
 	let selectedId = $state<string | null>(null);
-	const library = createQuery(() => meetingLibrary.list.options);
+	let cursor=$state<string|null>(null);
+	let previousPages=$state<(string|null)[]>([]);
+	const library = createQuery(() => meetingLibrary.page(cursor).options);
 	const detail = createQuery(() => ({
 		...meetingLibrary.detail(selectedId ?? '').options,
 		enabled: selectedId !== null,
@@ -27,8 +32,7 @@
 	<header class="space-y-2">
 		<h1 class="text-2xl font-semibold">Meetings</h1>
 		<p class="text-muted-foreground">
-			Saved local meetings. Unfinished-audio reconstruction and explicit transcription
-			are still under development. Browsing this library does not start recording.
+			Saved local meetings with explicit incomplete-audio recovery. Audio-only transcription is separate. Browsing this library does not start recording.
 			Screenshots stay local and are never sent to a transcription provider or LLM.
 		</p>
 		<p class="text-sm text-muted-foreground">Retained source plus mixed WAVs use approximately 1 GB/hour for dual-source meetings or 0.7 GB/hour for microphone-only, excluding screenshots.</p>
@@ -44,11 +48,14 @@
 		<p>Reading local metadata…</p>
 	{:else if library.data}
 		{#if library.data.truncated}
-			<p role="status">The 500-folder browsing limit was reached. Other folders remain untouched; this is not a complete list.</p>
+			<p role="status">More folders are available on the next page (500 per page). Pages use stable folder-ID order; dates are sorted within each page. Refresh from the first page to see newly added folders.</p>
 		{/if}
 		{#if library.data.entries.length === 0}
 			<p>No saved meetings yet. No recording or permission request was started.</p>
 		{/if}
+		<Button variant="outline" disabled={!previousPages.length||library.isFetching} onclick={()=>{cursor=previousPages[previousPages.length-1]??null;previousPages=previousPages.slice(0,-1);selectedId=null;preview.reset();}}>Previous page</Button>
+		<Button variant="outline" disabled={!library.data.nextCursor||library.isFetching} onclick={()=>{previousPages=[...previousPages,cursor];cursor=library.data?.nextCursor??null;selectedId=null;preview.reset();}}>Next page</Button>
+		<Button variant="ghost" disabled={cursor===null} onclick={()=>{cursor=null;previousPages=[];selectedId=null;preview.reset();}}>First page</Button>
 		<ul class="space-y-3">
 			{#each library.data.entries as entry}
 				<li class="border-border rounded-md border p-3 space-y-1">
@@ -86,6 +93,15 @@
 				{/if}
 				{#if detail.data.unregisteredAssets}
 					<p role="status">{detail.data.unregisteredAssets} unregistered audio/image files remain preserved for recovery.</p>
+				{/if}
+				{#if detail.data.state === 'unfinished' || detail.data.state === 'interrupted'}
+					{#key selectedId}<RecoverMeeting id={selectedId} />{/key}
+				{/if}
+				{#if (detail.data.state === 'completed' || detail.data.state === 'interrupted') && detail.data.manifest.audio.some(a => a.track === 'mixed')}
+					{#key selectedId}<TranscribeMeeting id={selectedId} />{/key}
+				{/if}
+				{#if detail.data.state === 'completed' || detail.data.state === 'interrupted'}
+					{#key selectedId}<MeetingPlayback id={selectedId} chunks={detail.data.manifest.audio.flatMap((a,index)=>a.track==='mixed'?[{index,offsetMs:a.offsetMs}]:[])} />{/key}
 				{/if}
 				<h3 class="font-semibold">Mixed audio chunks</h3>
 				<p class="text-sm text-muted-foreground">Raw microphone/system tracks remain local for recovery. Only finalized mixed chunks are available here.</p>

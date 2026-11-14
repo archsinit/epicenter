@@ -35,11 +35,18 @@ function detail() {
 describe('meeting library client (synthetic IPC, no providers/devices)', () => {
 	test('lists unfinished and damaged entries without write/capture/recovery requests', async () => {
 		const f = fixture();
-		f.response = { entries: [entry, { ...entry, id: 'bad name', state: 'unavailable', error: 'metadata damaged' }], truncated: true };
+		f.response = { entries: [entry, { ...entry, id: 'bad name', state: 'unavailable', error: 'metadata damaged' }], truncated: true, nextCursor: 'meeting-1' };
 		const result = await f.service.list();
 		expect(result.data?.entries).toHaveLength(2); expect(result.data?.truncated).toBe(true);
 		expect(f.calls).toEqual([{ command: 'meeting_list_saved', args: undefined }]);
 	});
+	test('paging uses an opaque advancing cursor and refuses malformed/non-advancing acknowledgements',async()=>{
+        const f=fixture();
+        f.response={entries:[],truncated:true,nextCursor:'z'};
+        expect((await f.service.list('a')).error).toBeNull();
+        expect(f.calls.at(-1)).toEqual({command:'meeting_list_saved',args:{after:'a'}});
+        for(const nextCursor of ['a','0',null]){f.response={entries:[],truncated:true,nextCursor};expect((await f.service.list('a')).error).toBeTruthy();}
+    });
 	test('bad schemas, unsafe numeric counters and oversized lists are rejected', async () => {
 		const f = fixture();
 		for (const response of [null, { entries: [{ ...entry, screenshots: -1 }], truncated: false }, { entries: [{ ...entry, audioChunks: 1.5 }], truncated: false }, { entries: Array(501).fill(entry), truncated: true }]) {

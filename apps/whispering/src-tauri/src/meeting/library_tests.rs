@@ -260,6 +260,15 @@ fn list_cap_is_explicit_and_leaves_unlisted_folders_intact() {
     let library = list(&fixture.0, None).unwrap();
     assert_eq!(library.entries.len(), MAX_LIBRARY_ENTRIES);
     assert!(library.truncated);
+    let next = list_page(&fixture.0, None, library.next_cursor.as_deref()).unwrap();
+    assert_eq!(next.entries.len(), 1);
+    assert!(!next.truncated);
+    assert!(next.next_cursor.is_none());
+    assert!(!library
+        .entries
+        .iter()
+        .any(|entry| entry.id == next.entries[0].id));
+    assert!(list_page(&fixture.0, None, Some(&"x".repeat(1025))).is_err());
     assert_eq!(
         fs::read_dir(&fixture.0).unwrap().count(),
         MAX_LIBRARY_ENTRIES + 1

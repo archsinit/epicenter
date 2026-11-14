@@ -20,6 +20,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 pub struct MeetingAppState {
     pub controller: Arc<MeetingController>,
     exit_task: Arc<AtomicBool>,
+    transcript_lock: Arc<std::sync::Mutex<()>>,
     recovery: Arc<crate::meeting::recovery_transaction::RecoveryTransactions>,
     quit_finalizer: Arc<QuitFinalizer>,
     exit_approved: Arc<AtomicBool>,
@@ -33,6 +34,7 @@ impl Default for MeetingAppState {
         Self {
             controller: Arc::new(controller),
             exit_task: Arc::new(AtomicBool::new(false)),
+            transcript_lock: Arc::new(std::sync::Mutex::new(())),
             recovery: Arc::new(
                 crate::meeting::recovery_transaction::RecoveryTransactions::default(),
             ),
@@ -323,15 +325,17 @@ fn meeting_root(app: &tauri::AppHandle) -> io::Result<PathBuf> {
 #[tauri::command]
 pub async fn meeting_list_saved(
     window: WebviewWindow,
+    after: Option<String>,
     state: State<'_, MeetingAppState>,
     app: tauri::AppHandle,
 ) -> Result<crate::meeting::library::MeetingLibrary> {
     main_window(&window)?;
     let controller = state.controller.clone();
     blocking(move || {
-        crate::meeting::library::list(
+        crate::meeting::library::list_page(
             &meeting_root(&app)?,
             controller.active_meeting_id()?.as_deref(),
+            after.as_deref(),
         )
     })
     .await
@@ -386,6 +390,85 @@ pub async fn meeting_read_screenshot(
     blocking(move || {
         crate::meeting::library::read_screenshot(&meeting_root(&app)?, &id, index)
             .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn meeting_transcript_latest(
+    window: WebviewWindow,
+    id: String,
+    app: tauri::AppHandle,
+    state: State<'_, MeetingAppState>,
+) -> Result<Option<crate::meeting::transcript::Transcript>> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    blocking(move || {
+        let _lock = state
+            .transcript_lock
+            .lock()
+            .map_err(|_| io::Error::other("Transcript storage unavailable"))?;
+        crate::meeting::transcript::latest(
+            &meeting_root(&app)?,
+            &id,
+            state.controller.active_meeting_id()?.as_deref(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn meeting_transcript_begin(
+    window: WebviewWindow,
+    id: String,
+    configuration_id: String,
+    provider_label: String,
+    resume: bool,
+    app: tauri::AppHandle,
+    state: State<'_, MeetingAppState>,
+) -> Result<crate::meeting::transcript::Transcript> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    blocking(move || {
+        let _lock = state
+            .transcript_lock
+            .lock()
+            .map_err(|_| io::Error::other("Transcript storage unavailable"))?;
+        crate::meeting::transcript::begin(
+            &meeting_root(&app)?,
+            &id,
+            &configuration_id,
+            &provider_label,
+            resume,
+            state.controller.active_meeting_id()?.as_deref(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn meeting_transcript_save(
+    window: WebviewWindow,
+    id: String,
+    token: String,
+    index: usize,
+    text: String,
+    app: tauri::AppHandle,
+    state: State<'_, MeetingAppState>,
+) -> Result<crate::meeting::transcript::Transcript> {
+    main_window(&window)?;
+    let state = state.inner().clone();
+    blocking(move || {
+        let _lock = state
+            .transcript_lock
+            .lock()
+            .map_err(|_| io::Error::other("Transcript storage unavailable"))?;
+        crate::meeting::transcript::save(
+            &meeting_root(&app)?,
+            &id,
+            &token,
+            index,
+            &text,
+            state.controller.active_meeting_id()?.as_deref(),
+        )
     })
     .await
 }
